@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "incarts"
+  },
+  "targets": {},
+  "etags": {
+    "incarts": {
+      "extensionInstances": {
+        "firestore-bigquery-export": "4d393a7bb13d72eb65bd06accf4983066269896ee6e98831969dabff22e47331",
+        "firestore-send-email": "a53e3230d80533449011aedc10621f3eb2dfea8120d3bceeb4d2d5424a7705cd"
+      }
+    }
+  },
+  "dataconnectEmulatorConfig": {}
+}

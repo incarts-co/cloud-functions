@@ -1,0 +1,284 @@
+{
+    "definitions": {
+      "FirefooFirestoreTimestamp": {
+        "required": [
+          "__time__"
+        ],
+        "properties": {
+          "__time__": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FirefooFirestoreGeoPoint": {
+        "required": [
+          "__lat__",
+          "__lon__"
+        ],
+        "properties": {
+          "__lat__": {
+            "type": "number"
+          },
+          "__lon__": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FirefooFirestoreDocRef": {
+        "required": [
+          "__ref__"
+        ],
+        "properties": {
+          "__ref__": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "type": "object",
+    "required": [],
+    "properties": {
+      "createdDetails": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": {
+            "$ref": "#/definitions/FirefooFirestoreTimestamp"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userRef": {
+            "$ref": "#/definitions/FirefooFirestoreDocRef"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_by_name": {
+            "type": "string"
+          },
+          "created_time": {
+            "$ref": "#/definitions/FirefooFirestoreTimestamp"
+          }
+        }
+      },
+      "docId": {
+        "type": "string"
+      },
+      "last_edited": {
+        "$ref": "#/definitions/FirefooFirestoreTimestamp"
+      },
+      "members": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FirefooFirestoreDocRef"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "owner": {
+        "$ref": "#/definitions/FirefooFirestoreDocRef"
+      },
+      "proj_link_prefix": {
+        "type": "string"
+      },
+      "projectBusiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "ref"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/definitions/FirefooFirestoreDocRef"
+          }
+        }
+      },
+      "projectOnboardingNextStep": {
+        "type": "string"
+      },
+      "project_logo": {
+        "type": "string"
+      },
+      "project_name": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "time_created": {
+        "$ref": "#/definitions/FirefooFirestoreTimestamp"
+      },
+      "udpatedDetails": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "timestamp",
+          "userId",
+          "userRef"
+        ],
+        "properties": {
+          "timestamp": {
+            "$ref": "#/definitions/FirefooFirestoreTimestamp"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userRef": {
+            "$ref": "#/definitions/FirefooFirestoreDocRef"
+          }
+        }
+      },
+      "users": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "user_id"
+          ],
+          "properties": {
+            "user_id": {
+              "type": "string"
+            },
+            "user_proj_role": {
+              "type": "string"
+            },
+            "user_ref": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/FirefooFirestoreDocRef"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "added_at": {
+              "$ref": "#/definitions/FirefooFirestoreTimestamp"
+            },
+            "added_by": {
+              "type": "string"
+            },
+            "display_name": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            },
+            "photo_url": {
+              "type": "string"
+            },
+            "user_role": {
+              "type": "string"
+            },
+            "names": {
+              "type": "string"
+            },
+            "photo": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "published": {
+        "type": "boolean"
+      },
+      "active": {
+        "type": "boolean"
+      },
+      "clicks_count": {
+        "type": "integer"
+      },
+      "currentOnboardingStep": {
+        "type": "integer"
+      },
+      "description": {
+        "type": "string"
+      },
+      "links_count": {
+        "type": "integer"
+      },
+      "pages_count": {
+        "type": "integer"
+      },
+      "products_count": {
+        "type": "integer"
+      },
+      "projLinkTags": {
+        "type": "array"
+      },
+      "updatedDetails": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "created_by": {
+            "type": "string"
+          },
+          "created_by_name": {
+            "type": "string"
+          },
+          "created_time": {
+            "$ref": "#/definitions/FirefooFirestoreTimestamp"
+          },
+          "updated_by": {
+            "type": "string"
+          },
+          "updated_by_name": {
+            "type": "string"
+          },
+          "updated_time": {
+            "$ref": "#/definitions/FirefooFirestoreTimestamp"
+          }
+        }
+      },
+      "admins": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/FirefooFirestoreDocRef"
+        }
+      },
+      "projlinkclickslastupdateddatetime": {
+        "$ref": "#/definitions/FirefooFirestoreTimestamp"
+      },
+      "auditDetails": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "timestamp",
+          "userId",
+          "userRef"
+        ],
+        "properties": {
+          "timestamp": {
+            "$ref": "#/definitions/FirefooFirestoreTimestamp"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userRef": {
+            "$ref": "#/definitions/FirefooFirestoreDocRef"
+          }
+        }
+      }
+    },
+    "additionalProperties": false
+  }

@@ -1,0 +1,267 @@
+{
+    "definitions": {
+      "FirefooFirestoreTimestamp": {
+        "required": [
+          "__time__"
+        ],
+        "properties": {
+          "__time__": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FirefooFirestoreGeoPoint": {
+        "required": [
+          "__lat__",
+          "__lon__"
+        ],
+        "properties": {
+          "__lat__": {
+            "type": "number"
+          },
+          "__lon__": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FirefooFirestoreDocRef": {
+        "required": [
+          "__ref__"
+        ],
+        "properties": {
+          "__ref__": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "type": "object",
+    "required": [
+      "deviceType",
+      "geoipData",
+      "influencerId",
+      "ipAddress",
+      "linkTags",
+      "linkType",
+      "projectId",
+      "referrer",
+      "shortId",
+      "timestamp",
+      "userAgent"
+    ],
+    "properties": {
+      "campaignId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "deviceType": {
+        "type": "string"
+      },
+      "geoipData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "location"
+        ],
+        "properties": {
+          "cityName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "countryName": {
+            "type": "string"
+          },
+          "location": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "accuracyRadius": {
+                "type": "integer"
+              },
+              "latitude": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "longitude": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "timeZone": {
+                "type": "string"
+              },
+              "metroCode": {
+                "type": "integer"
+              }
+            }
+          },
+          "maxmindQueriesRemaining": {
+            "type": "integer"
+          },
+          "postalCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "isoCode",
+                    "name"
+                  ],
+                  "properties": {
+                    "isoCode": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "postal": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "influencerId": {
+        "type": "null"
+      },
+      "ipAddress": {
+        "type": "string"
+      },
+      "linkActionType": {
+        "type": "string"
+      },
+      "linkSiteName": {
+        "type": "string"
+      },
+      "linkTags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "linkType": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "pagetype": {
+        "type": "string"
+      },
+      "productId": {
+        "type": "string"
+      },
+      "projectDetails": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "projectName"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "projectRef": {
+            "$ref": "#/definitions/FirefooFirestoreDocRef"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "projectId": {
+        "type": "string"
+      },
+      "qrCodeUrl": {
+        "type": "string"
+      },
+      "referrer": {
+        "type": "string"
+      },
+      "retailerName": {
+        "type": "string"
+      },
+      "retailerProductId": {
+        "type": "string"
+      },
+      "retailerProductName": {
+        "type": "string"
+      },
+      "shortId": {
+        "type": "string"
+      },
+      "shortLink": {
+        "type": "string"
+      },
+      "siteplainname": {
+        "type": "string"
+      },
+      "timestamp": {
+        "$ref": "#/definitions/FirefooFirestoreTimestamp"
+      },
+      "userAgent": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
