@@ -1,6 +1,7 @@
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { createClient } from "@supabase/supabase-js";
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -11,183 +12,251 @@ const supabaseKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBraHFjZmNkZ2Nsa3Nyd3JwZnFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTk0MTkzMzgsImV4cCI6MjAzNDk5NTMzOH0.hcxzo05NPDGDSexARi2u1q2I2rkueBc6dJu44R_dVbs";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-interface ClickData {
-  deviceType?: string;
-  geoipData?: {
-    cityName?: string;
-    countryName?: string;
-    location?: {
-      accuracyRadius?: number;
-      latitude?: number;
-      longitude?: number;
-      timeZone?: string;
-    };
-    maxmindQueriesRemaining?: number;
-    postalCode?: string;
-    state?: Array<{
-      isoCode?: string;
-      name?: string;
-    }>;
-  };
-  ipAddress?: string;
-  linkActionType?: string;
-  linkSiteName?: string;
-  linkTags?: string[];
-  name?: string;
-  pagetype?: string;
-  productId?: string;
-  projectDetails?: {
-    projectId?: string;
-    projectName?: string;
-  };
-  projectId?: string;
-  qrCodeUrl?: string;
-  referrer?: string;
-  shortId?: string;
-  shortLink?: string;
-  siteplainname?: string;
-  timestamp?: FirebaseFirestore.Timestamp;
-  campaignId?: string;
-  influencerId?: string;
-  linkType?: string;
+interface GeoLocation {
+  accuracyRadius?: number;
+  latitude?: number;
+  longitude?: number;
+  timeZone?: string;
 }
 
+interface GeoIpState {
+  isoCode?: string;
+  name?: string;
+}
+
+interface GeoIpData {
+  cityName?: string;
+  countryName?: string;
+  location?: GeoLocation;
+  maxmindQueriesRemaining?: number;
+  postalCode?: string;
+  state?: GeoIpState[]; // Array of states
+}
+
+interface ClickProjectDetails {
+  projectId?: string;
+  projectName?: string;
+}
+
+// Interface for the data structure in the 'clicks' collection in Firestore
+interface ClickData {
+  deviceType?: string;
+  geoipData?: GeoIpData;
+  ipAddress?: string;
+  linkActionType?: string; // This might be redundant if LinkData.pageType is preferred
+  linkSiteName?: string; // This might be redundant if LinkData.siteplainname is preferred
+  linkTags?: string[]; // From the click event itself, if different from the link's tags
+  name?: string; // Name associated with the click event, potentially overriding link name
+  pagetype?: string; // Similar to linkActionType, consider standardizing
+  productId?: string; // Product ID directly associated with the click event
+  projectDetails?: ClickProjectDetails; // Project details from click
+  projectId?: string; // Fallback projectId on click
+  qrCodeUrl?: string; // QR code URL if the click came from a QR code not defined on the link
+  referrer?: string;
+  shortId?: string; // This is the urlShortCode of the link that was clicked
+  shortLink?: string; // The shortLink URL that was clicked
+  siteplainname?: string; // Retailer/site name if specific to this click context
+  timestamp?: admin.firestore.Timestamp;
+  campaignId?: string;
+  campaign_name?: string; // If you capture campaign name directly on click
+  influencerId?: string;
+  linkType?: string; // Type of link/interaction as recorded by the click
+  userAgent?: string; // User agent string
+  // Any other fields you have directly on the click document
+}
+
+// Interface for the data structure in the 'links' collection in Firestore
 interface LinkData {
+  docId?: string; // Firestore document ID of this link
   urlShortCode?: string;
   name?: string;
   description?: string;
   linkTags?: string[];
   linkValue?: number;
   linkactiveflag?: boolean;
-  pageType?: string;
+  pageType?: string; // Primary type of the link (e.g., ATC, Shoppable, Link)
   longLink?: string;
   shortLink?: string;
-  shortlinkwithouthttps?: string;
-  siteRetailer?: string;
-  siteplainname?: string;
+  created?: {
+    // Assuming 'created' is an object with a timestamp and userId
+    timestamp?: admin.firestore.Timestamp;
+    userId?: string;
+  };
+  siteRetailer?: string; // Specific retailer for this link
+  siteplainname?: string; // General site/platform name for this link
   qrCode?: string;
-  linkqrcodeimgurl?: string;
+  linkqrcodeimgurl?: string; // Alternative QR code URL
   utmParameters?: Record<string, string>;
-  productId?: string;
+  productId?: string; // Product ID associated with this link
   projectDetails?: {
     projectId?: string;
     projectName?: string;
   };
-  retailerDetails?: {
-    retailerName?: string;
-    retailerProductId?: string;
-    retailerProductName?: string;
-  };
+  // retailerDetails might be too nested for easy staging, consider flattening if needed
 }
 
+// Interface for the data structure in the 'products' collection in Firestore
 interface ProductData {
-  docId?: string;
+  docId?: string; // Firestore document ID of this product
   name?: string;
   productPrice?: number;
-  largeImage?: string;
   brand?: string;
   category?: string;
   upc?: string;
-  retailerNames?: string[];
-  retailersV2?: Array<{
-    UPC?: string;
-    retailerItemId?: string;
-    retailerPrice?: number;
-    retailerSiteName?: string;
-    retailerTitle?: string;
-    siteName?: string;
-    productPageUrl?: string;
-    retailerMainImage?: string;
-    walmartOfferId?: string;
-  }>;
+  // other product fields as needed
 }
 
-export const syncClickToSupabase = onDocumentWritten({
-  document: "clicks/{clickId}",
-  region: "us-central1",
-  memory: "1GiB", 
-  timeoutSeconds: 300,
-  maxInstances: 10
-}, async (event) => {
-    const clickId = event.params.clickId;
-    const newValue = event.data?.after?.data() as ClickData | undefined;
+export const syncClickToSupabase = onDocumentWritten(
+  {
+    document: "clicks/{clickId}", // Path to your clicks collection
+    region: "us-central1", // Or your preferred region
+    memory: "1GiB",
+    timeoutSeconds: 300,
+    maxInstances: 10,
+  },
+  async (event) => {
+    const firestoreClickId = event.params.clickId; // Firestore document ID of the click
+    const clickSnapshot = event.data?.after;
 
-    if (!newValue) {
-      console.log("Document was deleted, skipping function execution.");
+    if (!clickSnapshot || !clickSnapshot.exists) {
+      logger.log(
+        "Click document was deleted or does not exist, skipping.",
+        firestoreClickId
+      );
       return null;
     }
 
-    console.log("Processing click data:", JSON.stringify(newValue, null, 2));
+    const clickData = clickSnapshot.data() as ClickData;
+    logger.log(
+      "Processing click data for Firestore ID:",
+      firestoreClickId,
+      JSON.stringify(clickData, null, 2)
+    );
 
     try {
-      // Get enriched data from links and products
-      const enrichedData = await getLinkAndProductData(newValue);
+      const enrichedData = await getLinkAndProductData(
+        clickData,
+        firestoreClickId
+      );
+      const supabaseData = prepareSupabaseData(
+        clickData,
+        enrichedData,
+        firestoreClickId
+      );
 
-      // Prepare data for Supabase
-      const supabaseData = prepareSupabaseData(newValue, enrichedData, clickId);
+      logger.log(
+        "Prepared Supabase data:",
+        JSON.stringify(supabaseData, null, 2)
+      );
 
-      // Upload to Supabase
       const { data, error } = await supabase
-        .from("link_clicks")
-        .upsert(supabaseData, { onConflict: "firestore_id" })
+        .from("link_clicks") // Your staging table name in Supabase
+        .upsert(supabaseData, { onConflict: "firestore_id" }) // Assuming 'firestore_id' is unique in Supabase
         .select();
 
-      if (error) throw error;
-      console.log("Data upserted in Supabase:", data);
-
+      if (error) {
+        logger.error(
+          "Supabase upsert error for click ID:",
+          firestoreClickId,
+          error
+        );
+        throw error; // Rethrow to trigger retries if configured, or for monitoring
+      }
+      logger.log(
+        "Data upserted in Supabase for click ID:",
+        firestoreClickId,
+        data
+      );
       return null;
     } catch (error) {
-      console.error("Error in cloud function:", error);
-      return null;
+      logger.error(
+        "Error in syncClickToSupabase for click ID:",
+        firestoreClickId,
+        error
+      );
+      // Depending on your error handling strategy, you might want to:
+      // - Write to a dead-letter queue in Firestore/PubSub
+      // - Simply log and allow the function to terminate
+      return null; // Or rethrow if you want Firebase to retry (be mindful of infinite loops)
     }
   }
 );
 
-async function getLinkAndProductData(clickData: ClickData): Promise<{
-  link?: LinkData;
+async function getLinkAndProductData(
+  clickData: ClickData,
+  firestoreClickId: string // For logging
+): Promise<{
+  link?: LinkData & { firestoreDocId?: string }; // Add Firestore doc ID to link
   product?: ProductData;
   productPrice: number;
   linkValue: number;
-  utmParameters?: Record<string, string>;
+  linkUtmParameters?: Record<string, string>;
 }> {
-  let link: LinkData | undefined;
+  let link: (LinkData & { firestoreDocId?: string }) | undefined;
   let product: ProductData | undefined;
   let productPrice = 0;
   let linkValue = 0;
-  let utmParameters: Record<string, string> | undefined;
+  let linkUtmParameters: Record<string, string> | undefined;
 
-  // Step 1: Get link document
-  if (clickData.shortId) {
+  if (!clickData.shortId) {
+    logger.warn(
+      "Click data is missing shortId, cannot enrich link/product info.",
+      firestoreClickId
+    );
+    return { productPrice, linkValue };
+  }
+
+  try {
     const linksSnapshot = await admin
       .firestore()
-      .collection("links")
+      .collection("links") // Your links collection name
       .where("urlShortCode", "==", clickData.shortId)
       .limit(1)
       .get();
 
     if (!linksSnapshot.empty) {
-      const linkDoc = linksSnapshot.docs[0].data() as LinkData;
-      link = linkDoc;
-      linkValue = linkDoc.linkValue || 0;
-      utmParameters = linkDoc.utmParameters;
+      const linkDocSnapshot = linksSnapshot.docs[0];
+      const linkDataFromFirestore = linkDocSnapshot.data() as LinkData;
+      link = { ...linkDataFromFirestore, firestoreDocId: linkDocSnapshot.id }; // Include Firestore doc ID
 
-      // Step 2: If link has productId, get product document
-      if (linkDoc.productId) {
+      linkValue = link.linkValue || 0;
+      linkUtmParameters = link.utmParameters;
+
+      if (link.productId) {
         const productSnapshot = await admin
           .firestore()
-          .collection("products")
-          .doc(linkDoc.productId)
+          .collection("products") // Your products collection name
+          .doc(link.productId)
           .get();
 
         if (productSnapshot.exists) {
           product = productSnapshot.data() as ProductData;
+          // Ensure docId is part of the product object if not already
+          if (!product.docId) product.docId = productSnapshot.id;
           productPrice = product.productPrice || 0;
+        } else {
+          logger.warn(
+            `Product with ID ${link.productId} not found for link ${link.firestoreDocId}.`,
+            firestoreClickId
+          );
+          productPrice = linkValue; // Fallback as per original logic
         }
       } else {
-        // If no product is referenced, use link value as product price
-        productPrice = linkValue;
+        productPrice = linkValue; // If no product referenced on link, use link value
       }
+    } else {
+      logger.warn(
+        `Link with shortId (urlShortCode) ${clickData.shortId} not found.`,
+        firestoreClickId
+      );
     }
+  } catch (error) {
+    logger.error(
+      `Error fetching link/product data for shortId ${clickData.shortId}:`,
+      error,
+      firestoreClickId
+    );
+    // Return default values or rethrow if critical
   }
 
   return {
@@ -195,40 +264,70 @@ async function getLinkAndProductData(clickData: ClickData): Promise<{
     product,
     productPrice,
     linkValue,
-    utmParameters,
+    linkUtmParameters, // Renamed for clarity
   };
 }
 
 function prepareSupabaseData(
   clickData: ClickData,
   enrichedData: {
-    link?: LinkData;
+    link?: LinkData & { firestoreDocId?: string };
     product?: ProductData;
     productPrice: number;
     linkValue: number;
-    utmParameters?: Record<string, string>;
+    linkUtmParameters?: Record<string, string>;
   },
-  clickId: string
+  firestoreClickId: string // Firestore document ID of the click
 ) {
-  const { link, product, productPrice, linkValue, utmParameters } =
+  const { link, product, productPrice, linkValue, linkUtmParameters } =
     enrichedData;
 
-  // Get basic product details
-  let productBrand = "";
-  let productCategory = "";
+  // --- Consolidate and Coalesce Fields ---
+  const finalName = link?.name || clickData.name || "Untitled";
+  const finalProjectId =
+    link?.projectDetails?.projectId ||
+    clickData.projectId ||
+    clickData.projectDetails?.projectId;
+  const finalProjectName =
+    link?.projectDetails?.projectName || clickData.projectDetails?.projectName;
 
-  if (product) {
-    // Get product basic information (not retailer-specific)
-    productBrand = product.brand || "";
-    productCategory = product.category || "";
-  }
+  // Standardize link_type / page_type. Prefer link.pageType as the primary source for the link's nature.
+  // clickData.linkType or clickData.pagetype can be secondary or represent the click interaction type.
+  const finalLinkType =
+    link?.pageType || clickData.linkType || clickData.pagetype || "Unknown";
 
-  // Combine data from click, link, and product
+  // For campaign name, prioritize click's direct campaign_name, then link's UTM, then click's UTM campaign
+  const campaignNameFromClick = clickData.campaign_name;
+  const campaignNameFromLinkUtm =
+    linkUtmParameters?.campaign || linkUtmParameters?.utm_campaign;
+  // utm_parameters on clickData itself (if you were to add it to ClickData interface)
+  // const campaignNameFromClickUtm = (clickData.utm_parameters as Record<string, string> | undefined)?.campaign || (clickData.utm_parameters as Record<string, string> | undefined)?.utm_campaign;
+  const finalCampaignName = campaignNameFromClick || campaignNameFromLinkUtm; // Or more complex coalescing
+
+  const linkTagsString =
+    link?.linkTags && Array.isArray(link.linkTags)
+      ? link.linkTags.join(",")
+      : Array.isArray(clickData.linkTags)
+      ? clickData.linkTags.join(",")
+      : null;
+
   return {
-    // Existing fields from original function
-    firestore_id: clickId,
-    short_id: clickData.shortId,
+    // --- Core Click Identifiers & Timestamps ---
+    firestore_id: firestoreClickId, // Primary key for upsert
+    short_id: clickData.shortId, // Link identifier that was clicked
+    timestamp: clickData.timestamp
+      ? clickData.timestamp.toDate().toISOString()
+      : new Date().toISOString(),
+    last_updated: new Date().toISOString(), // Always set to now for the Supabase record update time
+
+    // --- Click Context ---
     device_type: clickData.deviceType,
+    user_agent: clickData.userAgent, // NEW
+    ip_address: clickData.ipAddress,
+    referrer: clickData.referrer,
+    influencer_id: clickData.influencerId,
+
+    // --- GeoIP Data (flattened) ---
     city_name: clickData.geoipData?.cityName,
     country_name: clickData.geoipData?.countryName,
     latitude: clickData.geoipData?.location?.latitude,
@@ -237,56 +336,50 @@ function prepareSupabaseData(
     accuracy_radius: clickData.geoipData?.location?.accuracyRadius,
     maxmind_queries_remaining: clickData.geoipData?.maxmindQueriesRemaining,
     postal_code: clickData.geoipData?.postalCode,
-    state_iso_code: clickData.geoipData?.state?.[0]?.isoCode,
-    state_name: clickData.geoipData?.state?.[0]?.name,
-    ip_address: clickData.ipAddress,
-    referrer: clickData.referrer,
-    timestamp: clickData.timestamp
-      ? clickData.timestamp.toDate().toISOString()
-      : new Date().toISOString(),
-    product_price: productPrice,
-    link_value: linkValue,
-    campaign_id: clickData.campaignId,
-    influencer_id: clickData.influencerId,
-    last_updated: new Date().toISOString(),
+    state_iso_code: clickData.geoipData?.state?.[0]?.isoCode, // Takes the first state if array
+    state_name: clickData.geoipData?.state?.[0]?.name, // Takes the first state if array
 
-    // Fields from link document
-    link_action_type: link?.pageType || clickData.linkActionType || "Unknown",
-    link_site_name: link?.siteplainname || clickData.linkSiteName || "Unknown",
-    link_tags:
-      link?.linkTags && Array.isArray(link.linkTags)
-        ? link.linkTags.join(",")
-        : Array.isArray(clickData.linkTags)
-        ? clickData.linkTags.join(",")
-        : null,
-    name: link?.name || clickData.name || "Untitled",
-    page_type: link?.pageType || clickData.pagetype || "Unknown",
-    project_id:
-      link?.projectDetails?.projectId ||
-      clickData.projectId ||
-      clickData.projectDetails?.projectId ||
-      null,
-    project_name:
-      link?.projectDetails?.projectName ||
-      clickData.projectDetails?.projectName ||
-      null,
-    qr_code_url:
-      link?.qrCode || link?.linkqrcodeimgurl || clickData.qrCodeUrl || null,
-    short_link: link?.shortLink || clickData.shortLink || null,
+    // --- Link Information (from enrichedData.link or clickData as fallback) ---
+    name: finalName, // Consolidated name
+    short_link: link?.shortLink || clickData.shortLink,
+    link_long_url: link?.longLink, // NEW
+    link_type: finalLinkType, // Standardized link type
+    page_type: finalLinkType, // Often used interchangeably, ensure consistency or pick one for staging
+    link_action_type: finalLinkType, // Consolidate these type fields
+    link_site_name:
+      link?.siteplainname || clickData.linkSiteName || clickData.siteplainname, // Coalesce
     site_plain_name:
-      link?.siteplainname || clickData.siteplainname || "Unknown",
-    utm_parameters: utmParameters || null,
-    link_type: clickData.linkType || link?.pageType || null,
+      link?.siteplainname || clickData.siteplainname || clickData.linkSiteName, // Coalesce
+    link_tags: linkTagsString,
+    qr_code_url: link?.qrCode || link?.linkqrcodeimgurl || clickData.qrCodeUrl,
+    link_created_at: link?.created?.timestamp?.toDate()?.toISOString(), // NEW
+    link_created_by_user_id: link?.created?.userId, // NEW
+    link_active_flag: link?.linkactiveflag, // NEW
+    link_firestore_doc_id: link?.firestoreDocId, // NEW
 
-    // Additional product details
-    product_id:
-      product?.docId || link?.productId || clickData.productId || null,
+    // --- Project Information ---
+    project_id: finalProjectId,
+    project_name: finalProjectName,
 
-    // Additional fields to be added to Supabase
-    product_name: product?.name || null,
-    product_brand: productBrand || null,
-    product_category: productCategory || null,
-    retailer_name: link?.siteRetailer || null,
+    // --- Campaign Information ---
+    campaign_id: clickData.campaignId, // Primarily from click data
+    campaign_name: finalCampaignName, // From click or link UTM
+    campaign_name_from_link: campaignNameFromLinkUtm, // NEW - specifically from link's UTM
+
+    // --- UTM Parameters (store as JSONB in Supabase if possible) ---
+    utm_parameters: linkUtmParameters || null, // Primarily from LinkData
+
+    // --- Product & Value Information ---
+    product_id: product?.docId || link?.productId || clickData.productId,
+    product_name: product?.name,
+    product_brand: product?.brand,
+    product_category: product?.category,
+    product_upc: product?.upc, // NEW
+    retailer_name: link?.siteRetailer, // From LinkData.siteRetailer
+    product_price: productPrice, // Calculated (product's price or link's value)
+    link_value: linkValue, // Original link_value from LinkData
+
+    // etl_processed_at will be NULL initially, updated by the ETL process
+    etl_processed_at: null,
   };
 }
-
