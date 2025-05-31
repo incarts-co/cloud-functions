@@ -225,7 +225,7 @@ async function createInstacartShoppingList(data: {
           "Accept-Language": "en-CA",
           "Content-Type": "application/json",
           Authorization:
-            "Bearer keys.z5MwXBdYVggBqqdrSVmZwwg4HKnv1zGpBOAnlhAsSbc",
+            "Bearer keys.lLRxMEjBL9tp3VLVnDI4p2BDV5Bksjk2patIO0YAjL4",
         },
       }
     );
