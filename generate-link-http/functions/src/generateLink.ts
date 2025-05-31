@@ -12,7 +12,7 @@
  * - Shoppable page links
  *
  * It replaces the client-side link generation logic in the Flutter application.
- * 
+ *
  * Backup Products Feature:
  * - useBackups: Boolean flag indicating backup products are enabled
  * - backupProducts: JSON string containing an array of objects with structure:
@@ -81,7 +81,7 @@ interface GenerateLinkRequest {
 
   // For shoppable page (linkType "3")
   shoppablePageId?: string; // ID of selected shoppable page
-  
+
   // For backup products feature
   useBackups?: boolean; // Flag indicating if backup products are enabled
   backupProducts?: string; // JSON string of backup product configurations
@@ -210,8 +210,14 @@ async function createInstacartShoppingList(data: {
       requestBody.instructions = [data.instructions];
     }
 
+    // live instacart url
+    // https://connect.instacart.com/idp/v1/products/products_link
+
+    // testing instacart url
+    // https://connect.dev.instacart.tools/idp/v1/products/products_link
+
     const response = await axios.post(
-      "https://connect.dev.instacart.tools/idp/v1/products/products_link",
+      "https://connect.instacart.com/idp/v1/products/products_link",
       requestBody,
       {
         headers: {
@@ -292,33 +298,35 @@ async function generateLinkUrl(
       if (useBackups) {
         // For backup products flow, extract just the primary IDs for the cart URL
         // and include the full backup configuration in a separate parameter
-        
+
         // Extract primary IDs for the main cart items parameter
-        const primaryIds = selectedProducts.map((product: any) => product.primaryId).join(',');
-        
+        const primaryIds = selectedProducts
+          .map((product: any) => product.primaryId)
+          .join(",");
+
         // The backupProducts data is passed separately as a string parameter
         const url = `https://affil.walmart.com/cart/addToCart?items=${primaryIds}`;
-        
+
         logger.info("Generated Walmart backup products cart URL", {
           useBackups: true,
           primaryIds,
           selectedProducts,
           url,
         });
-        
+
         return url;
       } else {
         // Standard flow for regular products using offers parameter
         // Create comma-separated list of product IDs for cart (walmartOfferId values)
         const offers = selectedProducts.join(",");
         const url = `https://www.walmart.com/affil/cart/addToCart?offers=${offers}`;
-        
+
         logger.info("Generated standard Walmart cart URL", {
           useBackups: false,
           selectedProducts,
           url,
         });
-        
+
         return url;
       }
     } else {
@@ -668,7 +676,7 @@ export const generateLinkHttp = onRequest(
             utmParameters: data.utmParameters || {},
             linkTags: data.linkTags || [],
           };
-          
+
           // Add custom URL if provided
           if (data.customUrl) {
             documentData.customUrl = data.customUrl;
@@ -697,25 +705,28 @@ export const generateLinkHttp = onRequest(
               data.selectedRetailer || defaultRetailer || "";
             documentData.siteRetailer = data.instacartRetailer || "";
           }
-          
+
           // Add backup products data if provided
           if (data.useBackups) {
             documentData.useBackups = data.useBackups;
-            
+
             // Parse backupProducts from string to JSON object if it's a string
-            if (data.backupProducts && typeof data.backupProducts === 'string') {
+            if (
+              data.backupProducts &&
+              typeof data.backupProducts === "string"
+            ) {
               try {
                 // Parse the JSON string into an actual object
                 const parsedBackupProducts = JSON.parse(data.backupProducts);
                 documentData.backupProducts = parsedBackupProducts;
-                
+
                 logger.info("Successfully parsed backupProducts JSON", {
-                  parsedBackupProducts
+                  parsedBackupProducts,
                 });
               } catch (e) {
                 logger.error("Error parsing backupProducts JSON", {
                   backupProducts: data.backupProducts,
-                  error: e
+                  error: e,
                 });
                 // Still store the original string if parsing fails
                 documentData.backupProducts = data.backupProducts;
