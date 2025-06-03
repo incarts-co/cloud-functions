@@ -360,7 +360,7 @@ async function generateLinkUrl(
         )
         .join("&");
 
-      return `https://www.amazon.com/gp/aws/cart/add.html?AssociateTag=incarts0a-20&${productParams}`;
+      return `https://www.amazon.com/gp/aws/cart/add.html?AssociateTag=incarts07-20&${productParams}`;
     }
   } else if (selectedWebsite === "Kroger.com") {
     // Generate Kroger URL
