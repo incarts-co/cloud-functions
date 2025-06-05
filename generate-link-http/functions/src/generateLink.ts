@@ -331,7 +331,11 @@ async function generateLinkUrl(
       }
     } else {
       // Item Page logic
-      return `https://www.walmart.com/ip/${selectedProducts[0]}`;
+      // Handle both regular products and backup products structure
+      const productId = typeof selectedProducts[0] === 'object' && selectedProducts[0].primaryId
+        ? selectedProducts[0].primaryId
+        : selectedProducts[0];
+      return `https://www.walmart.com/ip/${productId}`;
     }
   } else if (selectedWebsite === "Instacart.com") {
     if (selectedAction === "Item Page") {
