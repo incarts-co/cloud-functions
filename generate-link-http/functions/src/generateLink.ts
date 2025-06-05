@@ -295,40 +295,30 @@ async function generateLinkUrl(
 ): Promise<string> {
   if (selectedWebsite === "Walmart.com") {
     if (selectedAction === "Add Items to Cart") {
+      // Always use items parameter for Walmart add to cart URLs
+      let itemIds: string;
+      
       if (useBackups) {
-        // For backup products flow, extract just the primary IDs for the cart URL
-        // and include the full backup configuration in a separate parameter
-
-        // Extract primary IDs for the main cart items parameter
-        const primaryIds = selectedProducts
+        // For backup products flow, extract just the primary IDs
+        itemIds = selectedProducts
           .map((product: any) => product.primaryId)
           .join(",");
-
-        // The backupProducts data is passed separately as a string parameter
-        const url = `https://affil.walmart.com/cart/addToCart?items=${primaryIds}`;
-
-        logger.info("Generated Walmart backup products cart URL", {
-          useBackups: true,
-          primaryIds,
-          selectedProducts,
-          url,
-        });
-
-        return url;
       } else {
-        // Standard flow for regular products using offers parameter
-        // Create comma-separated list of product IDs for cart (walmartOfferId values)
-        const offers = selectedProducts.join(",");
-        const url = `https://www.walmart.com/affil/cart/addToCart?offers=${offers}`;
-
-        logger.info("Generated standard Walmart cart URL", {
-          useBackups: false,
-          selectedProducts,
-          url,
-        });
-
-        return url;
+        // Standard flow - use product IDs directly
+        itemIds = selectedProducts.join(",");
       }
+
+      // Always use the affil.walmart.com domain with items parameter
+      const url = `https://affil.walmart.com/cart/addToCart?items=${itemIds}`;
+
+      logger.info("Generated Walmart cart URL", {
+        useBackups: useBackups || false,
+        itemIds,
+        selectedProducts,
+        url,
+      });
+
+      return url;
     } else {
       // Item Page logic
       // Handle both regular products and backup products structure
