@@ -19,18 +19,15 @@ interface GeoLocation {
   timeZone?: string;
 }
 
-interface GeoIpState {
-  isoCode?: string;
-  name?: string;
-}
 
 interface GeoIpData {
-  cityName?: string;
-  countryName?: string;
+  city?: string;
+  country?: string;
   location?: GeoLocation;
   maxmindQueriesRemaining?: number;
-  postalCode?: string;
-  state?: GeoIpState[]; // Array of states
+  postal?: string;
+  region?: string;
+  source?: string;
 }
 
 interface ClickProjectDetails {
@@ -328,16 +325,16 @@ function prepareSupabaseData(
     influencer_id: clickData.influencerId,
 
     // --- GeoIP Data (flattened) ---
-    city_name: clickData.geoipData?.cityName,
-    country_name: clickData.geoipData?.countryName,
+    city_name: clickData.geoipData?.city,
+    country_name: clickData.geoipData?.country,
     latitude: clickData.geoipData?.location?.latitude,
     longitude: clickData.geoipData?.location?.longitude,
     time_zone: clickData.geoipData?.location?.timeZone,
     accuracy_radius: clickData.geoipData?.location?.accuracyRadius,
     maxmind_queries_remaining: clickData.geoipData?.maxmindQueriesRemaining,
-    postal_code: clickData.geoipData?.postalCode,
-    state_iso_code: clickData.geoipData?.state?.[0]?.isoCode, // Takes the first state if array
-    state_name: clickData.geoipData?.state?.[0]?.name, // Takes the first state if array
+    postal_code: clickData.geoipData?.postal,
+    state_iso_code: null, // Region data structure doesn't match state array
+    state_name: clickData.geoipData?.region, // Map region to state_name
 
     // --- Link Information (from enrichedData.link or clickData as fallback) ---
     name: finalName, // Consolidated name
