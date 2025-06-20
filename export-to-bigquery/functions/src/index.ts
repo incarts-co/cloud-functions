@@ -1,14 +1,15 @@
 /**
  * Firestore to BigQuery Cloud Function v2
- * Captures all collections using wildcard pattern and streams to BigQuery
- * Compatible with Node 22, Firebase Functions v2, and latest BigQuery client
+ * Compatible with Node 22/23, Firebase Functions v2, and latest BigQuery client
+ * Fixed event handling and removed unavailable properties
  */
 
 import { onDocumentWritten, Change, FirestoreEvent } from "firebase-functions/v2/firestore";
+import { onRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { BigQuery } from "@google-cloud/bigquery";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, DocumentSnapshot } from "firebase-admin/firestore";
+import { DocumentSnapshot } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
 
 // Initialize Firebase Admin
@@ -17,7 +18,7 @@ initializeApp();
 // Set global options for all functions
 setGlobalOptions({
   region: "us-central1", // Change to your preferred region
-  memory: "256MiB",
+  memory: "512MiB",
   timeoutSeconds: 540,
 });
 
@@ -39,16 +40,10 @@ const schema = [
 ];
 
 /**
- * Extract collection name from document path
+ * Generate a unique event ID since it's not available in v2
  */
-function extractCollectionName(documentPath: string): string {
-  // documentPath format: projects/{project}/databases/{database}/documents/{collection}/{docId}
-  const pathParts = documentPath.split("/");
-  const documentsIndex = pathParts.indexOf("documents");
-  if (documentsIndex !== -1 && documentsIndex + 1 < pathParts.length) {
-    return pathParts[documentsIndex + 1];
-  }
-  return "unknown";
+function generateEventId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 /**
@@ -141,9 +136,17 @@ async function insertToBigQuery(row: any): Promise<void> {
     await ensureDatasetAndTable();
     
     const table = bigQuery.dataset(datasetId).table(tableId);
-    await table.insert([row], {
+    
+    // For deduplication, we format the row with insertId according to BigQuery API spec
+    const rowsToInsert = [{
+      insertId: row.event_id, // This is the correct way to specify insertId
+      json: row
+    }];
+    
+    await table.insert(rowsToInsert, {
       ignoreUnknownValues: true,
       skipInvalidRows: false,
+      raw: true, // This tells BigQuery to expect the insertId format
     });
     
     logger.info(`Successfully inserted row for ${row.collection_name}/${row.document_id}`);
@@ -161,12 +164,13 @@ export const firestoreToBigQuery = onDocumentWritten(
   "{collection}/{documentId}",
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined>) => {
     try {
-      // Extract event data
-      const { data, params, eventId, eventType } = event;
+      // Extract event data - note: eventId and eventType are not available in v2
+      const { data, params } = event;
       const collectionName = params.collection;
       const documentId = params.documentId;
+      const eventId = generateEventId(); // Generate our own ID
 
-      logger.info(`Processing ${eventType} for ${collectionName}/${documentId}`);
+      logger.info(`Processing document change for ${collectionName}/${documentId}`);
 
       // Determine operation type
       let operation: string;
@@ -223,38 +227,98 @@ export const firestoreToBigQuery = onDocumentWritten(
 );
 
 /**
- * Optional: Create current state view for each collection
- * This view shows the latest state of each document (like the extension's _latest view)
+ * HTTP function to create current state views for each collection
+ * Call this once after deploying to set up convenient views
  */
-export const createCurrentStateViews = onRequest(async (req, res) => {
-  try {
-    const collections = ["users", "projects", "campaigns", "newDynamicPages", "products", "links"];
-    
-    for (const collection of collections) {
-      const viewName = `${collection}_current_state`;
-      const query = `
-        CREATE OR REPLACE VIEW \`${process.env.GCLOUD_PROJECT}.${datasetId}.${viewName}\` AS
-        WITH latest_docs AS (
+export const createCurrentStateViews = onRequest(
+  {
+    cors: true,
+  },
+  async (req, res) => {
+    try {
+      const collections = ["users", "projects", "campaigns", "newDynamicPages", "products", "links"];
+      const results = [];
+      
+      for (const collection of collections) {
+        const viewName = `${collection}_current_state`;
+        const query = `
+          CREATE OR REPLACE VIEW \`${process.env.GCLOUD_PROJECT}.${datasetId}.${viewName}\` AS
+          WITH latest_docs AS (
+            SELECT 
+              document_id,
+              ARRAY_AGG(data ORDER BY timestamp DESC LIMIT 1)[OFFSET(0)] as data,
+              MAX(timestamp) as last_updated,
+              ARRAY_AGG(operation ORDER BY timestamp DESC LIMIT 1)[OFFSET(0)] as last_operation
+            FROM \`${process.env.GCLOUD_PROJECT}.${datasetId}.${tableId}\`
+            WHERE collection_name = '${collection}'
+            GROUP BY document_id
+          )
           SELECT 
             document_id,
-            MAX_BY(data, timestamp) as data,
-            MAX(timestamp) as last_updated,
-            MAX_BY(operation, timestamp) as last_operation
-          FROM \`${process.env.GCLOUD_PROJECT}.${datasetId}.${tableId}\`
-          WHERE collection_name = '${collection}'
-          GROUP BY document_id
-        )
-        SELECT * FROM latest_docs
-        WHERE last_operation != 'DELETE'
+            data,
+            last_updated,
+            last_operation
+          FROM latest_docs
+          WHERE last_operation != 'DELETE'
+        `;
+        
+        try {
+          await bigQuery.query(query);
+          logger.info(`Created view ${viewName}`);
+          results.push(`✅ Created view: ${viewName}`);
+        } catch (error) {
+          logger.error(`Error creating view ${viewName}:`, error);
+          results.push(`❌ Failed to create view: ${viewName} - ${error}`);
+        }
+      }
+      
+      res.status(200).json({
+        message: "View creation completed",
+        results: results,
+      });
+    } catch (error) {
+      logger.error("Error creating views:", error);
+      res.status(500).json({
+        error: "Error creating views",
+        details: error,
+      });
+    }
+  }
+);
+
+/**
+ * HTTP function to get analytics data for testing
+ */
+export const getAnalytics = onRequest(
+  {
+    cors: true,
+  },
+  async (req, res) => {
+    try {
+      const query = `
+        SELECT 
+          collection_name,
+          operation,
+          COUNT(*) as count,
+          DATE(timestamp) as date
+        FROM \`${process.env.GCLOUD_PROJECT}.${datasetId}.${tableId}\`
+        WHERE DATE(timestamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAYS)
+        GROUP BY collection_name, operation, date
+        ORDER BY date DESC, collection_name, operation
       `;
       
-      await bigQuery.query(query);
-      logger.info(`Created view ${viewName}`);
+      const [rows] = await bigQuery.query(query);
+      
+      res.status(200).json({
+        message: "Analytics data retrieved successfully",
+        data: rows,
+      });
+    } catch (error) {
+      logger.error("Error getting analytics:", error);
+      res.status(500).json({
+        error: "Error getting analytics",
+        details: error,
+      });
     }
-    
-    res.status(200).send("Views created successfully");
-  } catch (error) {
-    logger.error("Error creating views:", error);
-    res.status(500).send("Error creating views");
   }
-});
+);

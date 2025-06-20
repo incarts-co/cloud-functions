@@ -11,7 +11,7 @@
     "logs": "firebase functions:log"
   },
   "engines": {
-    "node": "22"
+    "node": "22 || 23"
   },
   "main": "lib/index.js",
   "dependencies": {
@@ -28,5 +28,8 @@
     "firebase-functions-test": "^3.1.0",
     "typescript": "^4.9.0"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "gtoken": "^7.0.0"
+  }
 }
