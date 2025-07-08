@@ -2,7 +2,8 @@
  * @fileoverview Analytics export Cloud Function for BigQuery data
  * @description Exports analytics data from BigQuery tables in CSV or JSON format
  * @module analytics-export
- * @related BigQuery tables: complete_page_analytics, unified_click_analytics, consumer_interactions, pages_device_breakdown, pages_geographic_breakdown, pages_traffic_sources
+ * @related BigQuery tables: complete_page_analytics, unified_click_analytics, complete_ctr_analysis, pages_device_breakdown, pages_geographic_breakdown, pages_traffic_sources
+ * @updated Uses new unified analytics views with Supabase + GA4 integration
  */
 
 import {onRequest} from "firebase-functions/v2/https";
@@ -17,113 +18,169 @@ interface BigQueryRow {
   [key: string]: any;
 }
 
-// Query definitions
+// Query definitions - Clean export-specific queries for desired report format
 const QUERIES: Record<string, string> = {
   general: `
+    WITH page_summary AS (
+      SELECT 
+        page_slug,
+        SUM(total_page_views) as total_page_views,
+        SUM(total_users) as total_users,
+        AVG(avg_session_duration) as avg_engagement_duration
+      FROM \`incarts.analytics.complete_page_analytics\`
+      WHERE project_id = @project_id
+        AND date BETWEEN @start_date AND @end_date
+        AND (@page_slug IS NULL OR page_slug = @page_slug)
+      GROUP BY page_slug
+    ),
+    click_summary AS (
+      SELECT 
+        page_slug,
+        SUM(clicks) as total_real_clicks
+      FROM \`incarts.analytics.unified_click_analytics\`
+      WHERE project_id = @project_id
+        AND date BETWEEN @start_date AND @end_date
+        AND (@page_slug IS NULL OR page_slug = @page_slug)
+        AND destination_url IS NOT NULL
+        AND destination_url != ''
+      GROUP BY page_slug
+    )
     SELECT 
-      REGEXP_EXTRACT(landing_page_url, r'/pages/([^/?]+)') as Page_URL_Slug,
-      total_page_views as Total_Page_Views,
-      total_users_proxy as Total_Users,
-      avg_daily_page_views as Average_Daily_Page_Views,
-      0 as Total_Clicks
-    FROM \`incarts.analytics.pages_overview\`
-    WHERE project_id = @project_id
-      AND (@page_slug IS NULL OR REGEXP_EXTRACT(landing_page_url, r'/pages/([^/?]+)') = @page_slug)
-    ORDER BY total_page_views DESC
+      CONCAT('https://pages.incarts.co/pages/', ps.page_slug) as Landing_Page_URL,
+      ps.total_page_views as Total_Page_Views,
+      ps.total_users as Total_Users,
+      CONCAT(
+        CAST(FLOOR(ps.avg_engagement_duration / 3600) AS STRING), ':',
+        LPAD(CAST(FLOOR(MOD(ps.avg_engagement_duration, 3600) / 60) AS STRING), 2, '0'), ':',
+        LPAD(CAST(FLOOR(MOD(ps.avg_engagement_duration, 60)) AS STRING), 2, '0')
+      ) as Average_Engagement_Duration,
+      COALESCE(cs.total_real_clicks, 0) as Total_Clicks
+    FROM page_summary ps
+    LEFT JOIN click_summary cs ON ps.page_slug = cs.page_slug
+    ORDER BY ps.total_page_views DESC
+    LIMIT 1
   `,
 
   pageviews_by_date: `
     SELECT 
       CAST(date AS STRING) as Date,
-      daily_page_views as Page_Views
-    FROM \`incarts.analytics.pageviews_by_date\`
+      SUM(total_page_views) as PageViews
+    FROM \`incarts.analytics.complete_page_analytics\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    ORDER BY date
+    GROUP BY date
+    ORDER BY PageViews DESC
   `,
 
   clicks_by_date: `
     SELECT 
       CAST(date AS STRING) as Date,
-      SUM(total_clicks) as Link_Clicks
-    FROM \`incarts.analytics.complete_ctr_analysis\`
+      SUM(clicks) as Link_Clicks
+    FROM \`incarts.analytics.unified_click_analytics\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
-      AND total_clicks > 0
       AND (@page_slug IS NULL OR page_slug = @page_slug)
+      AND destination_url IS NOT NULL
+      AND destination_url != ''
     GROUP BY date
-    ORDER BY date
+    HAVING SUM(clicks) > 0
+    ORDER BY Link_Clicks DESC
   `,
 
   interactions: `
+    WITH real_events AS (
+      -- Page views from GA4
+      SELECT 
+        'page_view' as event_name,
+        SUM(total_page_views) as event_count
+      FROM \`incarts.analytics.complete_page_analytics\`
+      WHERE project_id = @project_id
+        AND date BETWEEN @start_date AND @end_date
+        AND (@page_slug IS NULL OR page_slug = @page_slug)
+      
+      UNION ALL
+      
+      -- Session starts (approximate from total users)
+      SELECT 
+        'session_start' as event_name,
+        SUM(total_users) as event_count
+      FROM \`incarts.analytics.complete_page_analytics\`
+      WHERE project_id = @project_id
+        AND date BETWEEN @start_date AND @end_date
+        AND (@page_slug IS NULL OR page_slug = @page_slug)
+      
+      UNION ALL
+      
+      -- Real clicks to external URLs
+      SELECT 
+        'click' as event_name,
+        SUM(clicks) as event_count
+      FROM \`incarts.analytics.unified_click_analytics\`
+      WHERE project_id = @project_id
+        AND date BETWEEN @start_date AND @end_date
+        AND (@page_slug IS NULL OR page_slug = @page_slug)
+        AND destination_url IS NOT NULL
+        AND destination_url != ''
+    )
     SELECT 
       event_name as Event_Name,
       event_count as Event_Count
-    FROM \`incarts.analytics.consumer_interactions\`
-    WHERE project_id = @project_id
+    FROM real_events
+    WHERE event_count > 0
     ORDER BY event_count DESC
   `,
 
   clicks_by_url: `
     SELECT 
-      destination_url as Clicked_URL,
-      link_name as Link_Name,
-      SUM(total_clicks) as Click_Count
-    FROM \`incarts.analytics.complete_ctr_analysis\`
+      destination_url as URL,
+      SUM(clicks) as Clicks
+    FROM \`incarts.analytics.unified_click_analytics\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND destination_url IS NOT NULL
-      AND total_clicks > 0
+      AND destination_url != ''
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY destination_url, link_name
-    ORDER BY SUM(total_clicks) DESC
+    GROUP BY destination_url
+    ORDER BY Clicks DESC
   `,
 
   pageviews_by_device: `
     SELECT 
-      device_type as Device_Type,
-      page_views as Page_Views,
-      users as Users
+      device_type as Device_Category,
+      SUM(page_views) as PageViews
     FROM \`incarts.analytics.pages_device_breakdown\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    ORDER BY page_views DESC
+    GROUP BY device_type
+    ORDER BY PageViews DESC
   `,
 
   top_cities: `
     SELECT 
-      city as City,
-      state as State,
-      country as Country,
-      users as Users,
-      page_views as Page_Views
+      COALESCE(state, '(not set)') as Region,
+      COALESCE(city, '(not set)') as City,
+      SUM(page_views) as PageViews
     FROM \`incarts.analytics.pages_geographic_breakdown\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
-      AND city IS NOT NULL
-      AND city != '(not set)'
-      AND city != ''
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    ORDER BY users DESC
+    GROUP BY state, city
+    ORDER BY PageViews DESC
     LIMIT 25
   `,
 
   top_traffic_sources: `
     SELECT 
-      source as Traffic_Source_Domain,
-      medium as Medium,
-      users as Users,
-      sessions as Sessions,
-      page_views as Page_Views
+      COALESCE(source, '(not set)') as Session_Source,
+      SUM(page_views) as PageViews
     FROM \`incarts.analytics.pages_traffic_sources\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
-      AND source IS NOT NULL
-      AND source != '(direct)'
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    ORDER BY users DESC
+    GROUP BY source
+    ORDER BY PageViews DESC
     LIMIT 25
   `,
 
@@ -273,16 +330,16 @@ async function generateFullReport(projectId: string, startDate: string, endDate:
 function convertFullReportToCSV(reportData: any): string {
   let csv = "";
   
-  // Add each section with headers
+  // Add each section with headers to match desired format
   const sections = [
     { title: "GENERAL ANALYTICS", data: reportData.general },
-    { title: "PAGE VIEWS BY DATE", data: reportData.pageviews_by_date },
-    { title: "CLICKS BY DATE", data: reportData.clicks_by_date },
-    { title: "USER INTERACTIONS", data: reportData.interactions },
-    { title: "CLICKS BY URL", data: reportData.clicks_by_url },
-    { title: "PAGE VIEWS BY DEVICE", data: reportData.pageviews_by_device },
+    { title: "PAGEVIEWS BY DATE", data: reportData.pageviews_by_date },
+    { title: "LINK CLICKS BY DATE", data: reportData.clicks_by_date },
+    { title: "CONSUMER INTERACTIONS OVERVIEW", data: reportData.interactions },
+    { title: "CLICKS BY URLS", data: reportData.clicks_by_url },
+    { title: "PAGEVIEWS BY DEVICE TYPE", data: reportData.pageviews_by_device },
+    { title: "TOP 25 DOMAIN SOURCES", data: reportData.top_traffic_sources },
     { title: "TOP 25 CITIES", data: reportData.top_cities },
-    { title: "TOP 25 TRAFFIC SOURCES", data: reportData.top_traffic_sources },
   ];
 
   sections.forEach((section, index) => {
@@ -390,10 +447,10 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
     }
 
     // Validate format
-    if (!["csv", "json"].includes(format as string)) {
+    if (!["csv", "json", "excel"].includes(format as string)) {
       res.status(400).json({
         error: "Invalid format",
-        valid_formats: ["csv", "json"],
+        valid_formats: ["csv", "json", "excel"],
         received: format,
       });
       return;
