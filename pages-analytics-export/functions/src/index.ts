@@ -322,13 +322,13 @@ async function generateFullReport(projectId: string, startDate: string, endDate:
 }
 
 /**
- * Converts full report data to CSV format
+ * Converts full report data to Excel-compatible CSV format
  * @function
  * @param {Object} reportData - Full report data object
- * @returns {string} CSV formatted string
+ * @returns {string} Excel-compatible CSV formatted string
  */
-function convertFullReportToCSV(reportData: any): string {
-  let csv = "";
+function convertFullReportToExcelCSV(reportData: any): string {
+  let csv = "sep=,\n"; // Excel separator hint
   
   // Add each section with headers to match desired format
   const sections = [
@@ -343,7 +343,7 @@ function convertFullReportToCSV(reportData: any): string {
   ];
 
   sections.forEach((section, index) => {
-    if (index > 0) csv += "\n"; // Add spacing between sections
+    if (index > 0) csv += "\n\n"; // Add spacing between sections
     
     csv += `${section.title}\n`;
     
@@ -352,8 +352,6 @@ function convertFullReportToCSV(reportData: any): string {
     } else {
       csv += "No data available\n";
     }
-    
-    csv += "\n";
   });
 
   return csv;
@@ -467,9 +465,14 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
       const reportData = await generateFullReport(project_id as string, start_date as string, end_date as string, page_slug as string);
       
       if (format === 'csv') {
-        const csv = convertFullReportToCSV(reportData);
+        const csv = convertFullReportToExcelCSV(reportData);
         res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="full_report_${project_id}_${start_date}_${end_date}.csv"`);
+        res.setHeader('Content-Disposition', `attachment; filename="analytics_report_${project_id}_${start_date}_${end_date}.csv"`);
+        res.send(csv);
+      } else if (format === 'excel') {
+        const csv = convertFullReportToExcelCSV(reportData);
+        res.setHeader('Content-Type', 'application/vnd.ms-excel');
+        res.setHeader('Content-Disposition', `attachment; filename="analytics_report_${project_id}_${start_date}_${end_date}.csv"`);
         res.send(csv);
       } else {
         res.json({
