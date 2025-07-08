@@ -2,7 +2,7 @@
  * @fileoverview Analytics export Cloud Function for BigQuery data
  * @description Exports analytics data from BigQuery tables in CSV or JSON format
  * @module analytics-export
- * @related BigQuery tables: unified_ctr_complete, pages_device_breakdown, pages_geographic_breakdown, pages_traffic_sources
+ * @related BigQuery tables: complete_page_analytics, unified_click_analytics, consumer_interactions, pages_device_breakdown, pages_geographic_breakdown, pages_traffic_sources
  */
 
 import {onRequest} from "firebase-functions/v2/https";
@@ -23,62 +23,66 @@ const QUERIES: Record<string, string> = {
     SELECT 
       page_slug as Page_URL_Slug,
       SUM(total_page_views) as Total_Page_Views,
-      SUM(total_page_views) as Total_Users, 
-      AVG(avg_session_duration) as Average_Engagement_Duration,
+      SUM(total_users_proxy) as Total_Users,
+      AVG(avg_engagement_duration) as Average_Engagement_Duration,
       SUM(total_clicks) as Total_Clicks
-    FROM \`incarts.analytics.unified_ctr_complete\`
-    WHERE project_name = @project_id
-      AND date BETWEEN @start_date AND @end_date
-      AND total_page_views > 0
+    FROM \`incarts.analytics.pages_overview\`
+    WHERE project_id = @project_id
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
     GROUP BY page_slug
     ORDER BY SUM(total_page_views) DESC
   `,
 
   pageviews_by_date: `
     SELECT 
-      date as Date,
-      SUM(total_page_views) as Page_Views
-    FROM \`incarts.analytics.unified_ctr_complete\`
-    WHERE project_name = @project_id
+      CAST(date AS STRING) as Date,
+      SUM(daily_page_views) as Page_Views
+    FROM \`incarts.analytics.pageviews_by_date\`
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
     GROUP BY date
     ORDER BY date
   `,
 
   clicks_by_date: `
     SELECT 
-      date as Date,
+      CAST(date AS STRING) as Date,
       SUM(total_clicks) as Link_Clicks
-    FROM \`incarts.analytics.unified_ctr_complete\`
-    WHERE project_name = @project_id
+    FROM \`incarts.analytics.complete_ctr_analysis\`
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND total_clicks > 0
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
     GROUP BY date
     ORDER BY date
   `,
 
   interactions: `
     SELECT 
-      link_action_type as Event_Name,
-      SUM(total_clicks) as Event_Count
-    FROM \`incarts.analytics.unified_ctr_complete\`
-    WHERE project_name = @project_id
+      event_name as Event_Name,
+      SUM(event_count) as Event_Count
+    FROM \`incarts.analytics.consumer_interactions\`
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
-      AND link_action_type IS NOT NULL
-    GROUP BY link_action_type
-    ORDER BY SUM(total_clicks) DESC
+      AND event_name IS NOT NULL
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
+    GROUP BY event_name
+    ORDER BY SUM(event_count) DESC
   `,
 
   clicks_by_url: `
     SELECT 
-      clicked_url as Clicked_URL,
+      destination_url as Clicked_URL,
+      link_name as Link_Name,
       SUM(total_clicks) as Click_Count
-    FROM \`incarts.analytics.unified_ctr_complete\`
-    WHERE project_name = @project_id
+    FROM \`incarts.analytics.complete_ctr_analysis\`
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
-      AND clicked_url IS NOT NULL
+      AND destination_url IS NOT NULL
       AND total_clicks > 0
-    GROUP BY clicked_url
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
+    GROUP BY destination_url, link_name
     ORDER BY SUM(total_clicks) DESC
   `,
 
@@ -88,8 +92,9 @@ const QUERIES: Record<string, string> = {
       SUM(page_views) as Page_Views,
       SUM(users) as Users
     FROM \`incarts.analytics.pages_device_breakdown\`
-    WHERE project_name = @project_id
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
     GROUP BY device_type
     ORDER BY SUM(page_views) DESC
   `,
@@ -97,15 +102,16 @@ const QUERIES: Record<string, string> = {
   top_cities: `
     SELECT 
       city as City,
-      state as State, 
+      state as State,
       country as Country,
       SUM(users) as Users,
       SUM(page_views) as Page_Views
     FROM \`incarts.analytics.pages_geographic_breakdown\`
-    WHERE project_name = @project_id
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND city IS NOT NULL
       AND city != '(not set)'
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
     GROUP BY city, state, country
     ORDER BY SUM(users) DESC
     LIMIT 25
@@ -119,10 +125,11 @@ const QUERIES: Record<string, string> = {
       SUM(sessions) as Sessions,
       SUM(page_views) as Page_Views
     FROM \`incarts.analytics.pages_traffic_sources\`
-    WHERE project_name = @project_id
+    WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND source IS NOT NULL
       AND source != '(direct)'
+      AND (@page_slug IS NULL OR page_slug = @page_slug)
     GROUP BY source, medium
     ORDER BY SUM(users) DESC
     LIMIT 25
@@ -153,9 +160,15 @@ function convertToCSV(data: BigQueryRow[]): string {
         value = "";
       }
 
-      // Handle dates
+      // Handle dates - BigQuery returns date objects in different formats
       if (value instanceof Date) {
         value = value.toISOString().split("T")[0];
+      } else if (value && typeof value === 'object' && value.value) {
+        // BigQuery date object format
+        value = value.value;
+      } else if (value && typeof value === 'object' && typeof value.toString === 'function') {
+        // Generic object conversion
+        value = value.toString();
       }
 
       // Escape quotes and wrap in quotes if contains comma
@@ -234,7 +247,7 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
     }
 
     // Extract and validate parameters
-    const {type, project_id, start_date, end_date, format = "csv"} = req.query;
+    const {type, project_id, start_date, end_date, format = "csv", page_slug} = req.query;
 
     // Parameter validation
     if (!type || !project_id || !start_date || !end_date) {
@@ -304,7 +317,8 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
 
     // Execute BigQuery
     if (process.env.NODE_ENV === "development") {
-      logger.info(`Executing export: ${type} for project ${project_id} from ${start_date} to ${end_date}`);
+      const pageSlugInfo = page_slug ? ` for page_slug: ${page_slug}` : "";
+      logger.info(`Executing export: ${type} for project ${project_id} from ${start_date} to ${end_date}${pageSlugInfo}`);
     }
 
     const query = QUERIES[type as string];
@@ -314,6 +328,7 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
         project_id: project_id as string,
         start_date: start_date as string,
         end_date: end_date as string,
+        page_slug: page_slug ? page_slug as string : null,
       },
       // Add query timeout
       timeoutMs: 30000, // 30 seconds
