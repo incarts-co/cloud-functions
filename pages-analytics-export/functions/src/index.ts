@@ -21,27 +21,25 @@ interface BigQueryRow {
 const QUERIES: Record<string, string> = {
   general: `
     SELECT 
-      page_slug as Page_URL_Slug,
-      SUM(total_page_views) as Total_Page_Views,
-      SUM(total_users_proxy) as Total_Users,
-      AVG(avg_engagement_duration) as Average_Engagement_Duration,
-      SUM(total_clicks) as Total_Clicks
+      REGEXP_EXTRACT(landing_page_url, r'/pages/([^/?]+)') as Page_URL_Slug,
+      total_page_views as Total_Page_Views,
+      total_users_proxy as Total_Users,
+      avg_daily_page_views as Average_Daily_Page_Views,
+      0 as Total_Clicks
     FROM \`incarts.analytics.pages_overview\`
     WHERE project_id = @project_id
-      AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY page_slug
-    ORDER BY SUM(total_page_views) DESC
+      AND (@page_slug IS NULL OR REGEXP_EXTRACT(landing_page_url, r'/pages/([^/?]+)') = @page_slug)
+    ORDER BY total_page_views DESC
   `,
 
   pageviews_by_date: `
     SELECT 
       CAST(date AS STRING) as Date,
-      SUM(daily_page_views) as Page_Views
+      daily_page_views as Page_Views
     FROM \`incarts.analytics.pageviews_by_date\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY date
     ORDER BY date
   `,
 
@@ -61,14 +59,10 @@ const QUERIES: Record<string, string> = {
   interactions: `
     SELECT 
       event_name as Event_Name,
-      SUM(event_count) as Event_Count
+      event_count as Event_Count
     FROM \`incarts.analytics.consumer_interactions\`
     WHERE project_id = @project_id
-      AND date BETWEEN @start_date AND @end_date
-      AND event_name IS NOT NULL
-      AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY event_name
-    ORDER BY SUM(event_count) DESC
+    ORDER BY event_count DESC
   `,
 
   clicks_by_url: `
@@ -89,14 +83,13 @@ const QUERIES: Record<string, string> = {
   pageviews_by_device: `
     SELECT 
       device_type as Device_Type,
-      SUM(page_views) as Page_Views,
-      SUM(users) as Users
+      page_views as Page_Views,
+      users as Users
     FROM \`incarts.analytics.pages_device_breakdown\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY device_type
-    ORDER BY SUM(page_views) DESC
+    ORDER BY page_views DESC
   `,
 
   top_cities: `
@@ -104,16 +97,16 @@ const QUERIES: Record<string, string> = {
       city as City,
       state as State,
       country as Country,
-      SUM(users) as Users,
-      SUM(page_views) as Page_Views
+      users as Users,
+      page_views as Page_Views
     FROM \`incarts.analytics.pages_geographic_breakdown\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND city IS NOT NULL
       AND city != '(not set)'
+      AND city != ''
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY city, state, country
-    ORDER BY SUM(users) DESC
+    ORDER BY users DESC
     LIMIT 25
   `,
 
@@ -121,18 +114,21 @@ const QUERIES: Record<string, string> = {
     SELECT 
       source as Traffic_Source_Domain,
       medium as Medium,
-      SUM(users) as Users,
-      SUM(sessions) as Sessions,
-      SUM(page_views) as Page_Views
+      users as Users,
+      sessions as Sessions,
+      page_views as Page_Views
     FROM \`incarts.analytics.pages_traffic_sources\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND source IS NOT NULL
       AND source != '(direct)'
       AND (@page_slug IS NULL OR page_slug = @page_slug)
-    GROUP BY source, medium
-    ORDER BY SUM(users) DESC
+    ORDER BY users DESC
     LIMIT 25
+  `,
+
+  full_report: `
+    SELECT 1 as placeholder
   `,
 };
 
@@ -216,6 +212,94 @@ function validateExportType(type: string): boolean {
  */
 function validateProjectId(projectId: string): boolean {
   return typeof projectId === "string" && projectId.length > 0 && projectId.length < 100;
+}
+
+/**
+ * Generates a full analytics report by executing multiple queries
+ * @function
+ * @param {string} projectId - Project ID
+ * @param {string} startDate - Start date
+ * @param {string} endDate - End date
+ * @param {string} pageSlug - Page slug filter
+ * @returns {Promise<Object>} Full report data
+ */
+async function generateFullReport(projectId: string, startDate: string, endDate: string, pageSlug: string): Promise<any> {
+  const params = {
+    project_id: projectId,
+    start_date: startDate,
+    end_date: endDate,
+    page_slug: pageSlug || null,
+  };
+
+  // Execute all queries in parallel
+  const [
+    generalData,
+    pageviewsByDate,
+    clicksByDate,
+    interactions,
+    clicksByUrl,
+    pageviewsByDevice,
+    topCities,
+    topTrafficSources,
+  ] = await Promise.all([
+    bigquery.query({ query: QUERIES.general, params }),
+    bigquery.query({ query: QUERIES.pageviews_by_date, params }),
+    bigquery.query({ query: QUERIES.clicks_by_date, params }),
+    bigquery.query({ query: QUERIES.interactions, params }),
+    bigquery.query({ query: QUERIES.clicks_by_url, params }),
+    bigquery.query({ query: QUERIES.pageviews_by_device, params }),
+    bigquery.query({ query: QUERIES.top_cities, params }),
+    bigquery.query({ query: QUERIES.top_traffic_sources, params }),
+  ]);
+
+  return {
+    general: generalData[0],
+    pageviews_by_date: pageviewsByDate[0],
+    clicks_by_date: clicksByDate[0],
+    interactions: interactions[0],
+    clicks_by_url: clicksByUrl[0],
+    pageviews_by_device: pageviewsByDevice[0],
+    top_cities: topCities[0],
+    top_traffic_sources: topTrafficSources[0],
+  };
+}
+
+/**
+ * Converts full report data to CSV format
+ * @function
+ * @param {Object} reportData - Full report data object
+ * @returns {string} CSV formatted string
+ */
+function convertFullReportToCSV(reportData: any): string {
+  let csv = "";
+  
+  // Add each section with headers
+  const sections = [
+    { title: "GENERAL ANALYTICS", data: reportData.general },
+    { title: "PAGE VIEWS BY DATE", data: reportData.pageviews_by_date },
+    { title: "CLICKS BY DATE", data: reportData.clicks_by_date },
+    { title: "USER INTERACTIONS", data: reportData.interactions },
+    { title: "CLICKS BY URL", data: reportData.clicks_by_url },
+    { title: "PAGE VIEWS BY DEVICE", data: reportData.pageviews_by_device },
+    { title: "TOP 25 CITIES", data: reportData.top_cities },
+    { title: "TOP 25 TRAFFIC SOURCES", data: reportData.top_traffic_sources },
+  ];
+
+  sections.forEach((section, index) => {
+    if (index > 0) csv += "\n"; // Add spacing between sections
+    
+    csv += `${section.title}\n`;
+    
+    if (section.data && section.data.length > 0) {
+      csv += convertToCSV(section.data);
+    } else {
+      csv += "No data available\n";
+    }
+    
+    csv += "\n";
+  });
+
+  return csv;
 }
 
 /**
@@ -319,6 +403,31 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
     if (process.env.NODE_ENV === "development") {
       const pageSlugInfo = page_slug ? ` for page_slug: ${page_slug}` : "";
       logger.info(`Executing export: ${type} for project ${project_id} from ${start_date} to ${end_date}${pageSlugInfo}`);
+    }
+
+    // Handle full_report separately
+    if (type === 'full_report') {
+      const reportData = await generateFullReport(project_id as string, start_date as string, end_date as string, page_slug as string);
+      
+      if (format === 'csv') {
+        const csv = convertFullReportToCSV(reportData);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="full_report_${project_id}_${start_date}_${end_date}.csv"`);
+        res.send(csv);
+      } else {
+        res.json({
+          data: reportData,
+          metadata: {
+            type: type as string,
+            project_id: project_id as string,
+            start_date: start_date as string,
+            end_date: end_date as string,
+            sections: Object.keys(reportData),
+            generated_at: new Date().toISOString(),
+          },
+        });
+      }
+      return;
     }
 
     const query = QUERIES[type as string];
