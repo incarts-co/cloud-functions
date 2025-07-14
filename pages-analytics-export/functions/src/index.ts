@@ -18,25 +18,33 @@ interface BigQueryRow {
   [key: string]: any;
 }
 
-// Query definitions - Clean export-specific queries for desired report format
+// Updated QUERIES object with correct view names and column references
 const QUERIES: Record<string, string> = {
   general: `
     WITH page_summary AS (
       SELECT 
         page_slug,
         SUM(total_page_views) as total_page_views,
-        SUM(total_users) as total_users,
-        AVG(avg_session_duration) as avg_engagement_duration
-      FROM \`incarts.analytics.complete_page_analytics\`
-      WHERE project_id = @project_id
-        AND date BETWEEN @start_date AND @end_date
-        AND (@page_slug IS NULL OR page_slug = @page_slug)
-      GROUP BY page_slug
+        -- Get users from device breakdown view (has user counts)
+        (SELECT SUM(users) FROM \`incarts.analytics.pages_device_breakdown\` d 
+         WHERE d.page_slug = p.page_slug 
+         AND d.project_id = p.project_id 
+         AND d.date BETWEEN @start_date AND @end_date) as total_users,
+        -- Get average session duration from device breakdown  
+        (SELECT AVG(avg_session_duration) FROM \`incarts.analytics.pages_device_breakdown\` d 
+         WHERE d.page_slug = p.page_slug 
+         AND d.project_id = p.project_id 
+         AND d.date BETWEEN @start_date AND @end_date) as avg_engagement_duration
+      FROM \`incarts.analytics.complete_page_analytics\` p
+      WHERE p.project_id = @project_id
+        AND p.date BETWEEN @start_date AND @end_date
+        AND (@page_slug IS NULL OR p.page_slug = @page_slug)
+      GROUP BY page_slug, project_id
     ),
     click_summary AS (
       SELECT 
         page_slug,
-        SUM(clicks) as total_real_clicks
+        SUM(total_clicks) as total_real_clicks  -- Updated column name
       FROM \`incarts.analytics.unified_click_analytics\`
       WHERE project_id = @project_id
         AND date BETWEEN @start_date AND @end_date
@@ -76,7 +84,7 @@ const QUERIES: Record<string, string> = {
   clicks_by_date: `
     SELECT 
       CAST(date AS STRING) as Date,
-      SUM(clicks) as Link_Clicks
+      SUM(total_clicks) as Link_Clicks  -- Updated column name
     FROM \`incarts.analytics.unified_click_analytics\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
@@ -84,13 +92,13 @@ const QUERIES: Record<string, string> = {
       AND destination_url IS NOT NULL
       AND destination_url != ''
     GROUP BY date
-    HAVING SUM(clicks) > 0
+    HAVING SUM(total_clicks) > 0  -- Updated column name
     ORDER BY Link_Clicks DESC
   `,
 
   interactions: `
     WITH real_events AS (
-      -- Page views from GA4
+      -- Page views from complete analytics
       SELECT 
         'page_view' as event_name,
         SUM(total_page_views) as event_count
@@ -101,11 +109,11 @@ const QUERIES: Record<string, string> = {
       
       UNION ALL
       
-      -- Session starts (approximate from total users)
+      -- Session starts (from device breakdown which has user counts)
       SELECT 
         'session_start' as event_name,
-        SUM(total_users) as event_count
-      FROM \`incarts.analytics.complete_page_analytics\`
+        SUM(users) as event_count
+      FROM \`incarts.analytics.pages_device_breakdown\`
       WHERE project_id = @project_id
         AND date BETWEEN @start_date AND @end_date
         AND (@page_slug IS NULL OR page_slug = @page_slug)
@@ -115,7 +123,7 @@ const QUERIES: Record<string, string> = {
       -- Real clicks to external URLs
       SELECT 
         'click' as event_name,
-        SUM(clicks) as event_count
+        SUM(total_clicks) as event_count  -- Updated column name
       FROM \`incarts.analytics.unified_click_analytics\`
       WHERE project_id = @project_id
         AND date BETWEEN @start_date AND @end_date
@@ -134,7 +142,7 @@ const QUERIES: Record<string, string> = {
   clicks_by_url: `
     SELECT 
       destination_url as URL,
-      SUM(clicks) as Clicks
+      SUM(total_clicks) as Clicks  -- Updated column name
     FROM \`incarts.analytics.unified_click_analytics\`
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
@@ -175,7 +183,7 @@ const QUERIES: Record<string, string> = {
     SELECT 
       COALESCE(source, '(not set)') as Session_Source,
       SUM(page_views) as PageViews
-    FROM \`incarts.analytics.pages_traffic_sources\`
+    FROM \`incarts.analytics.pages_traffic_sources\`  -- Use existing view
     WHERE project_id = @project_id
       AND date BETWEEN @start_date AND @end_date
       AND (@page_slug IS NULL OR page_slug = @page_slug)
@@ -280,6 +288,9 @@ function validateProjectId(projectId: string): boolean {
  * @param {string} pageSlug - Page slug filter
  * @returns {Promise<Object>} Full report data
  */
+/**
+ * Updated generateFullReport function with correct query references
+ */
 async function generateFullReport(projectId: string, startDate: string, endDate: string, pageSlug: string): Promise<any> {
   const params = {
     project_id: projectId,
@@ -288,7 +299,7 @@ async function generateFullReport(projectId: string, startDate: string, endDate:
     page_slug: pageSlug || null,
   };
 
-  // Execute all queries in parallel
+  // Execute all queries in parallel using our clean views
   const [
     generalData,
     pageviewsByDate,
