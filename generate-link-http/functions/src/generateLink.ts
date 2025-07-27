@@ -79,6 +79,33 @@ interface GenerateLinkRequest {
     lineItems: any[];
   };
 
+  // For recipe creation (when selectedAction is "Recipe")
+  recipeData?: {
+    title: string;
+    image_url?: string;
+    author?: string;
+    servings?: number;
+    cooking_time?: number;
+    instructions?: string[];
+    ingredients: Array<{
+      name: string;
+      display_text?: string;
+      upcs?: string[];
+      measurements?: Array<{
+        quantity?: number;
+        unit?: string;
+      }>;
+      filters?: {
+        brand_filters?: string[];
+        health_filters?: string[];
+      };
+    }>;
+    landing_page_configuration?: {
+      partner_linkback_url?: string;
+      enable_pantry_items?: boolean;
+    };
+  };
+
   // For shoppable page (linkType "3")
   shoppablePageId?: string; // ID of selected shoppable page
 
@@ -239,6 +266,80 @@ async function createInstacartShoppingList(data: {
   }
 }
 
+/**
+ * Create an Instacart recipe and return the recipe URL
+ */
+async function createInstacartRecipe(
+  recipeData: {
+    title: string;
+    image_url?: string;
+    author?: string;
+    servings?: number;
+    cooking_time?: number;
+    instructions?: string[];
+    ingredients: any[];
+    landing_page_configuration?: any;
+  },
+  retailer?: string
+): Promise<string> {
+  try {
+    const requestBody: any = {
+      title: recipeData.title,
+      link_type: "recipe",
+      ingredients: recipeData.ingredients,
+      landing_page_configuration: {
+        partner_linkback_url: "beta.incarts.co",
+        enable_pantry_items: true,
+        ...recipeData.landing_page_configuration,
+      },
+    };
+
+    // Add optional fields if they exist
+    if (recipeData.image_url) {
+      requestBody.image_url = recipeData.image_url;
+    }
+    if (recipeData.author) {
+      requestBody.author = recipeData.author;
+    }
+    if (recipeData.servings) {
+      requestBody.servings = recipeData.servings;
+    }
+    if (recipeData.cooking_time) {
+      requestBody.cooking_time = recipeData.cooking_time;
+    }
+    if (recipeData.instructions && recipeData.instructions.length > 0) {
+      requestBody.instructions = recipeData.instructions;
+    }
+
+    // Add retailer-specific targeting if provided
+    if (retailer) {
+      requestBody.retailer_key = retailer;
+    }
+
+    // Call Instacart Recipe API
+    const response = await axios.post(
+      "https://connect.instacart.com/idp/v1/products/recipe",
+      requestBody,
+      {
+        headers: {
+          Accept: "application/json",
+          "Accept-Language": "en-CA",
+          "Content-Type": "application/json",
+          Authorization:
+            "Bearer keys.lLRxMEjBL9tp3VLVnDI4p2BDV5Bksjk2patIO0YAjL4", // Same as shopping list
+        },
+      }
+    );
+
+    return response.data.products_link_url;
+  } catch (error: any) {
+    logger.error("Error creating Instacart recipe:", error);
+    throw new Error(
+      `Failed to create Instacart recipe: ${error.message}`
+    );
+  }
+}
+
 async function generateQrCode(url: string): Promise<any> {
   try {
     const response = await axios.post(QR_CODE_GENERATOR_API, { url });
@@ -291,6 +392,16 @@ async function generateLinkUrl(
     instructions?: string;
     lineItems: any[];
   },
+  recipeData?: {
+    title: string;
+    image_url?: string;
+    author?: string;
+    servings?: number;
+    cooking_time?: number;
+    instructions?: string[];
+    ingredients: any[];
+    landing_page_configuration?: any;
+  },
   useBackups?: boolean
 ): Promise<string> {
   if (selectedWebsite === "Walmart.com") {
@@ -340,6 +451,9 @@ async function generateLinkUrl(
     } else if (selectedAction === "Shopping List" && shoppingListData) {
       // Call Instacart API to create shopping list
       return await createInstacartShoppingList(shoppingListData);
+    } else if (selectedAction === "Recipe" && recipeData) {
+      // Call Instacart API to create recipe
+      return await createInstacartRecipe(recipeData, instacartRetailer);
     }
   } else if (selectedWebsite === "Amazon.com") {
     if (selectedAction === "Item Page") {
@@ -490,6 +604,23 @@ export const generateLinkHttp = onRequest(
                 });
                 return;
               }
+            } else if (data.selectedAction === "Recipe") {
+              if (!data.recipeData) {
+                response.status(400).json({
+                  success: false,
+                  error: "Recipe data is required for Recipe action",
+                });
+                return;
+              }
+
+              const { title, ingredients } = data.recipeData;
+              if (!title || !ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
+                response.status(400).json({
+                  success: false,
+                  error: "Invalid recipe data: title and ingredients are required",
+                });
+                return;
+              }
             } else if (
               !data.selectedProducts ||
               data.selectedProducts.length === 0
@@ -508,6 +639,7 @@ export const generateLinkHttp = onRequest(
               data.selectedProducts || [],
               data.instacartRetailer,
               data.shoppingListData,
+              data.recipeData,
               data.useBackups
             );
 
