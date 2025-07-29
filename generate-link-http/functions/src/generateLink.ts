@@ -311,10 +311,6 @@ async function createInstacartRecipe(
       requestBody.instructions = recipeData.instructions;
     }
 
-    // Add retailer-specific targeting if provided
-    if (retailer) {
-      requestBody.retailer_key = retailer;
-    }
 
     // Call Instacart Recipe API
     const response = await axios.post(
@@ -331,7 +327,16 @@ async function createInstacartRecipe(
       }
     );
 
-    return response.data.products_link_url;
+    let recipeUrl = response.data.products_link_url;
+
+    // Manually append retailer_key to URL if provided
+    if (retailer) {
+      const separator = recipeUrl.includes('?') ? '&' : '?';
+      recipeUrl += `${separator}retailer_key=${retailer}`;
+      logger.info(`Appended retailer_key to recipe URL: ${recipeUrl}`);
+    }
+
+    return recipeUrl;
   } catch (error: any) {
     logger.error("Error creating Instacart recipe:", error);
     throw new Error(
