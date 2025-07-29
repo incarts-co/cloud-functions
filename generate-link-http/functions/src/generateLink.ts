@@ -219,7 +219,7 @@ async function createInstacartShoppingList(data: {
   imageUrl: string;
   instructions?: string;
   lineItems: any[];
-}): Promise<string> {
+}, retailer?: string): Promise<string> {
   try {
     const requestBody: any = {
       title: data.title,
@@ -257,7 +257,16 @@ async function createInstacartShoppingList(data: {
       }
     );
 
-    return response.data.products_link_url;
+    let shoppingListUrl = response.data.products_link_url;
+
+    // Manually append retailer_key to URL if provided
+    if (retailer) {
+      const separator = shoppingListUrl.includes('?') ? '&' : '?';
+      shoppingListUrl += `${separator}retailer_key=${retailer}`;
+      logger.info(`Appended retailer_key to shopping list URL: ${shoppingListUrl}`);
+    }
+
+    return shoppingListUrl;
   } catch (error: any) {
     logger.error("Error creating Instacart shopping list:", error);
     throw new Error(
@@ -455,7 +464,7 @@ async function generateLinkUrl(
       }
     } else if (selectedAction === "Shopping List" && shoppingListData) {
       // Call Instacart API to create shopping list
-      return await createInstacartShoppingList(shoppingListData);
+      return await createInstacartShoppingList(shoppingListData, instacartRetailer);
     } else if (selectedAction === "Recipe" && recipeData) {
       // Call Instacart API to create recipe
       return await createInstacartRecipe(recipeData, instacartRetailer);
