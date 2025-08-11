@@ -1,5 +1,5 @@
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
-import { defineSecret } from "firebase-functions/params";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {defineSecret} from "firebase-functions/params";
 import * as functions from "firebase-functions/v2";
 
 // Define secret for GitHub token
@@ -56,6 +56,10 @@ interface Feedback {
 
 /**
  * Creates a GitHub issue using REST API
+ * @param {BugReport | Feedback} data - The document data
+ * @param {string} collectionName - The collection name
+ * @param {string} token - GitHub access token
+ * @return {Promise<any>} GitHub issue response
  */
 async function createGitHubIssue(
   data: BugReport | Feedback,
@@ -65,11 +69,11 @@ async function createGitHubIssue(
   // Prepare issue data based on collection type
   let issueTitle: string;
   let issueBody: string;
-  
+
   if (collectionName === "bugReports") {
     const bugData = data as BugReport;
-    issueTitle = bugData.title || `New bug report`;
-    
+    issueTitle = bugData.title || "New bug report";
+
     issueBody = `
 ## Bug Report
 
@@ -92,16 +96,22 @@ ${bugData.actualBehavior || "Not provided"}
 ${bugData.stepsToReproduce || "Not provided"}
 
 **Page URL:** ${bugData.pageUrl || "Not provided"}
-**Timestamp:** ${bugData.timestamp?.__time__ || bugData.timestamp || new Date().toISOString()}
+**Timestamp:** ${
+  bugData.timestamp?.__time__ ||
+  bugData.timestamp ||
+  new Date().toISOString()
+}
 
 ${bugData.screenshots && bugData.screenshots.length > 0 ? `**Screenshots:**
-${bugData.screenshots.map(url => `- ${url}`).join('\n')}` : ''}
+${bugData.screenshots.map((url) => `- ${url}`).join("\n")}` : ""}
 
 **Browser Info:**
 - User Agent: ${bugData.userAgent || "Not provided"}
-${bugData.browserInfo ? `- Screen Resolution: ${bugData.browserInfo.screenResolution || "Not provided"}
+${bugData.browserInfo ? `- Screen Resolution: ${
+    bugData.browserInfo.screenResolution || "Not provided"
+  }
 - Platform: ${bugData.browserInfo.platform || "Not provided"}
-- Language: ${bugData.browserInfo.language || "Not provided"}` : ''}
+- Language: ${bugData.browserInfo.language || "Not provided"}` : ""}
 
 ## Full Data
 \`\`\`json
@@ -111,7 +121,7 @@ ${JSON.stringify(data, null, 2)}
   } else {
     const feedbackData = data as Feedback;
     issueTitle = `Feedback: ${feedbackData.type || "general"}`;
-    
+
     issueBody = `
 ## Feedback
 
@@ -124,7 +134,11 @@ ${JSON.stringify(data, null, 2)}
 ${feedbackData.message || "No message provided"}
 
 **Page URL:** ${feedbackData.pageUrl || "Not provided"}
-**Timestamp:** ${feedbackData.timestamp?.__time__ || feedbackData.timestamp || new Date().toISOString()}
+**Timestamp:** ${
+  feedbackData.timestamp?.__time__ ||
+  feedbackData.timestamp ||
+  new Date().toISOString()
+}
 
 **Browser:**
 ${feedbackData.userAgent || "Not provided"}
@@ -147,12 +161,13 @@ ${JSON.stringify(data, null, 2)}
 
   // Make API request to create issue
   const response = await fetch(
-    `${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/issues`,
+    `${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/` +
+      `${GITHUB_CONFIG.repo}/issues`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github.json",
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/vnd.github.json",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -172,7 +187,8 @@ ${JSON.stringify(data, null, 2)}
 }
 
 /**
- * Cloud Function v2 triggered when a document is created in bugReports collection
+ * Cloud Function v2 triggered when a document
+ * is created in bugReports collection
  */
 export const onBugReportCreated = onDocumentCreated(
   {
