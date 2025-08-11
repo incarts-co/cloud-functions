@@ -12,14 +12,45 @@ const GITHUB_CONFIG = {
   apiUrl: "https://api.github.com",
 };
 
-// Interface for the document data
-interface ReportData {
+// Interface for bug report data
+interface BugReport {
   title?: string;
   description?: string;
   userEmail?: string;
-  category?: string;
-  priority?: string;
+  userId?: string;
+  projectId?: string;
+  projectName?: string;
+  severity?: string;
+  status?: string;
+  expectedBehavior?: string;
+  actualBehavior?: string;
+  stepsToReproduce?: string;
+  pageUrl?: string;
+  screenshots?: string[];
   timestamp?: any;
+  userAgent?: string;
+  browserInfo?: {
+    cookiesEnabled?: boolean;
+    language?: string;
+    platform?: string;
+    screenResolution?: string;
+    windowSize?: string;
+  };
+  [key: string]: any;
+}
+
+// Interface for feedback data
+interface Feedback {
+  message?: string;
+  type?: string;
+  userEmail?: string;
+  userId?: string;
+  projectId?: string;
+  projectName?: string;
+  status?: string;
+  pageUrl?: string;
+  timestamp?: any;
+  userAgent?: string;
   [key: string]: any;
 }
 
@@ -27,39 +58,91 @@ interface ReportData {
  * Creates a GitHub issue using REST API
  */
 async function createGitHubIssue(
-  data: ReportData,
+  data: BugReport | Feedback,
   collectionName: string,
   token: string
 ): Promise<any> {
-  // Prepare issue data
-  const issueTitle = data.title || `New ${collectionName} report`;
+  // Prepare issue data based on collection type
+  let issueTitle: string;
+  let issueBody: string;
+  
+  if (collectionName === "bugReports") {
+    const bugData = data as BugReport;
+    issueTitle = bugData.title || `New bug report`;
+    
+    issueBody = `
+## Bug Report
 
-  const issueBody = `
-## Report Type
-${collectionName === "bugReports" ? "🐛 Bug Report" : "💡 Feedback"}
+**Title:** ${bugData.title || "Not provided"}
+**User:** ${bugData.userEmail || "Not provided"}
+**Project:** ${bugData.projectName || "Not provided"}
+**Severity:** ${bugData.severity || "Not provided"}
+**Status:** ${bugData.status || "new"}
 
-## Description
-${data.description || "No description provided"}
+**Description:**
+${bugData.description || "No description provided"}
 
-## Details
-- **User Email**: ${data.userEmail || "Not provided"}
-- **Category**: ${data.category || "General"}
-- **Priority**: ${data.priority || "Medium"}
-- **Submitted**: ${new Date().toISOString()}
+**Expected Behavior:**
+${bugData.expectedBehavior || "Not provided"}
 
-## Additional Information
+**Actual Behavior:**
+${bugData.actualBehavior || "Not provided"}
+
+**Steps to Reproduce:**
+${bugData.stepsToReproduce || "Not provided"}
+
+**Page URL:** ${bugData.pageUrl || "Not provided"}
+**Timestamp:** ${bugData.timestamp?.__time__ || bugData.timestamp || new Date().toISOString()}
+
+${bugData.screenshots && bugData.screenshots.length > 0 ? `**Screenshots:**
+${bugData.screenshots.map(url => `- ${url}`).join('\n')}` : ''}
+
+**Browser Info:**
+- User Agent: ${bugData.userAgent || "Not provided"}
+${bugData.browserInfo ? `- Screen Resolution: ${bugData.browserInfo.screenResolution || "Not provided"}
+- Platform: ${bugData.browserInfo.platform || "Not provided"}
+- Language: ${bugData.browserInfo.language || "Not provided"}` : ''}
+
+## Full Data
 \`\`\`json
 ${JSON.stringify(data, null, 2)}
 \`\`\`
 `;
+  } else {
+    const feedbackData = data as Feedback;
+    issueTitle = `Feedback: ${feedbackData.type || "general"}`;
+    
+    issueBody = `
+## Feedback
+
+**Type:** ${feedbackData.type || "Not provided"}
+**User:** ${feedbackData.userEmail || "Not provided"}
+**Project:** ${feedbackData.projectName || "Not provided"}
+**Status:** ${feedbackData.status || "new"}
+
+**Message:**
+${feedbackData.message || "No message provided"}
+
+**Page URL:** ${feedbackData.pageUrl || "Not provided"}
+**Timestamp:** ${feedbackData.timestamp?.__time__ || feedbackData.timestamp || new Date().toISOString()}
+
+**Browser:**
+${feedbackData.userAgent || "Not provided"}
+
+## Full Data
+\`\`\`json
+${JSON.stringify(data, null, 2)}
+\`\`\`
+`;
+  }
 
   // Create labels based on collection type
   const labels: string[] = [];
   if (collectionName === "bugReports") {
-    labels.push("bug");
+    labels.push("user-sumissions", "bug");
     if (data.priority === "high") labels.push("priority:high");
   } else {
-    labels.push("enhancement", "feedback");
+    labels.push("user-sumissions", "feedback");
   }
 
   // Make API request to create issue
@@ -98,7 +181,7 @@ export const onBugReportCreated = onDocumentCreated(
     region: "us-central1", // Change to your preferred region
   },
   async (event) => {
-    const data = event.data?.data() as ReportData;
+    const data = event.data?.data() as BugReport;
 
     if (!data) {
       functions.logger.error("No data found in document");
@@ -141,7 +224,7 @@ export const onFeedbackCreated = onDocumentCreated(
     region: "us-central1", // Change to your preferred region
   },
   async (event) => {
-    const data = event.data?.data() as ReportData;
+    const data = event.data?.data() as Feedback;
 
     if (!data) {
       functions.logger.error("No data found in document");
