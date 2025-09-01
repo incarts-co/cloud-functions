@@ -153,10 +153,10 @@ ${JSON.stringify(data, null, 2)}
   // Create labels based on collection type
   const labels: string[] = [];
   if (collectionName === "bugReports") {
-    labels.push("user-sumissions", "bug");
+    labels.push("user-submissions", "bug");
     if (data.priority === "high") labels.push("priority:high");
   } else {
-    labels.push("user-sumissions", "feedback");
+    labels.push("user-submissions", "feedback");
   }
 
   // Make API request to create issue
