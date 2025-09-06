@@ -37,6 +37,7 @@ const corsHandler = cors({
     /^https:\/\/rrd\.incarts\.co$/,
     /^https:\/\/beta\.incarts\.co$/,
     /^https:\/\/staging\.incarts\.co$/,
+    /^https:\/\/app\.incarts\.co$/,
     // allow everything from us-central1.hosted.app and subdomains
     /^https:\/\/.*\.us-central1\.hosted\.app$/,
   ],
