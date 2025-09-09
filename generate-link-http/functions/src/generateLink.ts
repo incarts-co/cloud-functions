@@ -1,7 +1,11 @@
 /**
- * Link Generation Cloud Function
+ * @fileoverview Link Generation Cloud Function with QR Code Tracking
+ * @description Handles generation of shoppable links with QR tracking
+ * @module cloud-functions/generate-link-http
+ * @related docs/qr-code-integration-plan.md
  *
  * Version History:
+ * v1.1.0 (Sep-06-2025) - Add QR code tracking integration with qrCodes collection
  * v1.0.3 (May-15-2025) - Add staging.incarts.co to CORS allowed origins
  * v1.0.2 (Apr-29-2025) - Add backup products feature
  * v1.0.1 (Mar-11-2025) - Add rrd.incarts.co to CORs allowed origins
@@ -13,6 +17,11 @@
  *
  * It replaces the client-side link generation logic in the Flutter application.
  *
+ * QR Code Integration Feature:
+ * - Creates a separate qrCodes collection for individual QR code tracking
+ * - Maintains backward compatibility with existing links
+ * - Supports future expansion for multiple QR codes per link
+ * 
  * Backup Products Feature:
  * - useBackups: Boolean flag indicating backup products are enabled
  * - backupProducts: JSON string containing an array of objects with structure:
@@ -389,6 +398,69 @@ async function createLinkDocument(data: any): Promise<any> {
     return {
       success: false,
       error: error.message || "Failed to create link document",
+    };
+  }
+}
+
+/**
+ * Create a default QR code record in the qrCodes collection
+ * @function
+ * @param {Object} params - QR code creation parameters
+ * @param {string} params.linkId - The parent link document ID
+ * @param {string} params.shortId - The shortened URL identifier
+ * @param {string} params.qrCodeUrl - The generated QR code image URL
+ * @param {string} params.projectId - The project identifier
+ * @param {string} params.userId - The user creating the QR code
+ * @returns {Promise<Object>} Result object with success status and qrCodeId
+ */
+async function createDefaultQRRecord(params: {
+  linkId: string;
+  shortId: string;
+  qrCodeUrl: string;
+  projectId: string;
+  userId: string;
+}): Promise<{ success: boolean; qrCodeId?: string; error?: string }> {
+  try {
+    // Use a meaningful default ID
+    const qrCodeId = `default-${params.linkId}`;
+    const qrRef = db.collection("qrCodes").doc(qrCodeId);
+
+    const qrRecord = {
+      qrCodeId: qrCodeId,  // Required for URL shortener lookup
+      linkId: params.linkId,
+      shortId: params.shortId,
+      name: "Default QR Code",
+      qrCodeUrl: params.qrCodeUrl,
+      createdAt: new Date(),
+      createdBy: params.userId,
+      projectId: params.projectId,
+      isDefault: true,
+      clickCount: 0,
+    };
+
+    // Set the document with the generated ID
+    await qrRef.set(qrRecord);
+
+    // Update the parent link document with qrCodeCount
+    await db.collection("links").doc(params.linkId).update({
+      qrCodeCount: 1,
+    });
+
+    logger.info("Created default QR record", {
+      qrCodeId,
+      linkId: params.linkId,
+      shortId: params.shortId,
+    });
+
+    return {
+      success: true,
+      qrCodeId,
+    };
+  } catch (error: any) {
+    logger.error("Error creating QR record:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to create QR record",
     };
   }
 }
@@ -887,6 +959,28 @@ export const generateLinkHttp = onRequest(
               error: `Failed to create link document: ${createResult.error}`,
             });
             return;
+          }
+
+          // Create default QR record in qrCodes collection
+          if (linkDocId && qrResult.publicUrl && shortenResult.shortId) {
+            const qrRecordResult = await createDefaultQRRecord({
+              linkId: linkDocId,
+              shortId: shortenResult.shortId,
+              qrCodeUrl: qrResult.publicUrl,
+              projectId: data.projectId,
+              userId: data.userId,
+            });
+
+            if (!qrRecordResult.success) {
+              // Log the error but don't fail the entire operation
+              logger.warn(
+                "Failed to create QR record, continuing with link creation",
+                {
+                  error: qrRecordResult.error,
+                  linkId: linkDocId,
+                }
+              );
+            }
           }
 
           // Return the success response

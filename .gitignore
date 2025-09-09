@@ -1,0 +1,28 @@
+# Node dependencies
+node_modules/
+
+# Build output
+lib/
+*.js.map
+
+# Environment files
+.env
+.env.*
+
+# OS/Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Service account keys
+serviceAccountKey.json
+
+# Logs
+*.log
+
+# Coverage reports
+coverage/
+
+# Firebase emulator logs
+firebase-debug.log
+firestore-debug.log

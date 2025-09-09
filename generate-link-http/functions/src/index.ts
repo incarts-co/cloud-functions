@@ -1,2 +1,4 @@
 import { generateLinkHttp } from "./generateLink";
-export { generateLinkHttp };
+import { createAdditionalQRCode } from "./createAdditionalQRCode";
+
+export { generateLinkHttp, createAdditionalQRCode };
