@@ -17,7 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.2",
     "firebase-admin": "^12.1.0",
-    "firebase-functions": "^6.3.2",
+    "firebase-functions": "^6.4.0",
     "supabase": "^1.191.3"
   },
   "devDependencies": {
