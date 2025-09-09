@@ -877,7 +877,14 @@ export const generateLinkHttp = onRequest(
           }
 
           // Generate QR code
-          const qrResult = await generateQrCode(shortenResult.shortURL);
+          // Precision change: encode the QR to use the dedicated QR route like additional QR codes
+          // This ensures scans are tracked as sourceType = 'qr'
+          const qrIdentifierForImage =
+            (data.defaultQRIdentifier && typeof data.defaultQRIdentifier === "string"
+              ? data.defaultQRIdentifier
+              : `default-${linkDocId}`);
+          const qrUrlForImage = `https://in2carts.com/qr/${qrIdentifierForImage}`;
+          const qrResult = await generateQrCode(qrUrlForImage);
 
           if (!qrResult.success) {
             response.status(500).json({
