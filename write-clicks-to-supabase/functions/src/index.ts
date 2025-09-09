@@ -1,3 +1,15 @@
+/**
+ * @fileoverview Syncs click data from Firestore to Supabase for analytics
+ * @description This Cloud Function monitors the Firestore 'clicks' collection and enriches
+ * click data with link and product information before syncing to Supabase's link_clicks table.
+ * Now includes QR code tracking to differentiate between QR scans and direct link clicks.
+ * @module write-clicks-to-supabase
+ * @related 
+ * - generate-link-http: Creates links and QR codes
+ * - Supabase link_clicks table: Analytics data storage
+ * - Firestore collections: clicks, links, products, qrCodes
+ */
+
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { createClient } from "@supabase/supabase-js";
 import * as admin from "firebase-admin";
@@ -59,6 +71,10 @@ interface ClickData {
   influencerId?: string;
   linkType?: string; // Type of link/interaction as recorded by the click
   userAgent?: string; // User agent string
+  // QR Code tracking fields
+  sourceType?: string; // 'qr' or 'link' - indicates click source
+  qrIdentifier?: string; // QR code identifier (e.g., "black-friday-2025")
+  qrCodeId?: string; // Document ID from qrCodes collection
   // Any other fields you have directly on the click document
 }
 
@@ -103,6 +119,12 @@ interface ProductData {
   // other product fields as needed
 }
 
+/**
+ * Cloud Function that syncs click data to Supabase when a click document is created or updated
+ * @function syncClickToSupabase
+ * @description Triggers on Firestore clicks collection changes, enriches the data with link/product info,
+ * and syncs to Supabase for analytics. Supports QR code tracking to differentiate click sources.
+ */
 export const syncClickToSupabase = onDocumentWritten(
   {
     document: "clicks/{clickId}", // Path to your clicks collection
@@ -179,6 +201,14 @@ export const syncClickToSupabase = onDocumentWritten(
   }
 );
 
+/**
+ * Fetches and enriches click data with link and product information from Firestore
+ * @async
+ * @function getLinkAndProductData
+ * @param {ClickData} clickData - The click data from Firestore
+ * @param {string} firestoreClickId - The Firestore document ID for logging
+ * @returns {Promise<Object>} Enriched data containing link, product, prices, and UTM parameters
+ */
 async function getLinkAndProductData(
   clickData: ClickData,
   firestoreClickId: string // For logging
@@ -265,6 +295,15 @@ async function getLinkAndProductData(
   };
 }
 
+/**
+ * Prepares click data for insertion into Supabase by flattening nested structures
+ * and consolidating fields from multiple sources
+ * @function prepareSupabaseData
+ * @param {ClickData} clickData - Raw click data from Firestore
+ * @param {Object} enrichedData - Enriched data containing link and product information
+ * @param {string} firestoreClickId - Firestore document ID of the click
+ * @returns {Object} Flattened data object ready for Supabase insertion with QR tracking fields
+ */
 function prepareSupabaseData(
   clickData: ClickData,
   enrichedData: {
@@ -323,6 +362,11 @@ function prepareSupabaseData(
     ip_address: clickData.ipAddress,
     referrer: clickData.referrer,
     influencer_id: clickData.influencerId,
+
+    // --- QR Code Tracking (NEW) ---
+    source_type: clickData.sourceType || 'link', // Default to 'link' for backward compatibility
+    qr_identifier: clickData.qrIdentifier || null, // QR code identifier if this was a QR scan
+    qr_code_id: clickData.qrCodeId || null, // Document ID from qrCodes collection
 
     // --- GeoIP Data (flattened) ---
     city_name: clickData.geoipData?.city,
