@@ -48,6 +48,34 @@ interface CreateQRCodeRequest {
 }
 
 /**
+ * Validate QR identifier for URL safety and uniqueness requirements
+ */
+function validateQRIdentifier(identifier: string): { valid: boolean; error?: string } {
+  // Length check
+  if (identifier.length < 3 || identifier.length > 50) {
+    return { valid: false, error: "Identifier must be 3-50 characters long" };
+  }
+  
+  // Character validation: lowercase letters, numbers, hyphens only
+  if (!/^[a-z0-9-]+$/.test(identifier)) {
+    return { valid: false, error: "Use only lowercase letters, numbers, and hyphens" };
+  }
+  
+  // No double hyphens or leading/trailing hyphens
+  if (/--/.test(identifier) || /^-|-$/.test(identifier)) {
+    return { valid: false, error: "Invalid hyphen placement" };
+  }
+  
+  // Reserved words check
+  const reserved = ["api", "admin", "qr", "link", "test", "w", "app", "www"];
+  if (reserved.includes(identifier)) {
+    return { valid: false, error: "This identifier is reserved" };
+  }
+  
+  return { valid: true };
+}
+
+/**
  * Generate a QR code image
  */
 async function generateQrCode(url: string): Promise<any> {
@@ -87,6 +115,17 @@ export const createAdditionalQRCode = onRequest(
             return;
           }
 
+          // Validate identifier format
+          const validation = validateQRIdentifier(data.identifier);
+          if (!validation.valid) {
+            response.status(400).json({
+              success: false,
+              error: validation.error,
+            });
+            resolve();
+            return;
+          }
+
           // Check if link exists
           const linkDoc = await db.collection("links").doc(data.linkId).get();
           if (!linkDoc.exists) {
@@ -104,9 +143,18 @@ export const createAdditionalQRCode = onRequest(
           const existingQR = await db.collection("qrCodes").doc(data.identifier).get();
 
           if (existingQR.exists) {
+            // Generate helpful suggestions
+            const timestamp = Date.now();
+            const suggestions = [
+              `${data.identifier}-${timestamp}`,
+              `${data.identifier}-${data.linkId.slice(-6)}`,
+              `${data.identifier}-v2`,
+            ];
+            
             response.status(409).json({
               success: false,
-              error: `QR code with identifier '${data.identifier}' already exists for this link`,
+              error: `Identifier '${data.identifier}' is already in use. Please choose a different identifier.`,
+              suggestions: suggestions,
             });
             resolve();
             return;
