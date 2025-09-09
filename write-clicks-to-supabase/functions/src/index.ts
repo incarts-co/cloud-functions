@@ -4,16 +4,16 @@
  * click data with link and product information before syncing to Supabase's link_clicks table.
  * Now includes QR code tracking to differentiate between QR scans and direct link clicks.
  * @module write-clicks-to-supabase
- * @related 
+ * @related
  * - generate-link-http: Creates links and QR codes
  * - Supabase link_clicks table: Analytics data storage
  * - Firestore collections: clicks, links, products, qrCodes
  */
 
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
-import { createClient } from "@supabase/supabase-js";
+import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import {createClient} from "@supabase/supabase-js";
 import * as admin from "firebase-admin";
-import { logger } from "firebase-functions";
+import {logger} from "firebase-functions";
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -33,6 +33,7 @@ interface GeoLocation {
 
 
 interface GeoIpData {
+  // Lowercase field names
   city?: string;
   country?: string;
   location?: GeoLocation;
@@ -40,6 +41,15 @@ interface GeoIpData {
   postal?: string;
   region?: string;
   source?: string;
+  // CamelCase field names (alternative naming)
+  cityName?: string;
+  countryName?: string;
+  postalCode?: string;
+  // State can be an array of objects or null
+  state?: Array<{
+    isoCode: string;
+    name: string;
+  }> | null;
 }
 
 interface ClickProjectDetails {
@@ -168,9 +178,9 @@ export const syncClickToSupabase = onDocumentWritten(
         JSON.stringify(supabaseData, null, 2)
       );
 
-      const { data, error } = await supabase
+      const {data, error} = await supabase
         .from("link_clicks") // Your staging table name in Supabase
-        .upsert(supabaseData, { onConflict: "firestore_id" }) // Assuming 'firestore_id' is unique in Supabase
+        .upsert(supabaseData, {onConflict: "firestore_id"}) // Assuming 'firestore_id' is unique in Supabase
         .select();
 
       if (error) {
@@ -207,7 +217,7 @@ export const syncClickToSupabase = onDocumentWritten(
  * @function getLinkAndProductData
  * @param {ClickData} clickData - The click data from Firestore
  * @param {string} firestoreClickId - The Firestore document ID for logging
- * @returns {Promise<Object>} Enriched data containing link, product, prices, and UTM parameters
+ * @return {Promise<Object>} Enriched data containing link, product, prices, and UTM parameters
  */
 async function getLinkAndProductData(
   clickData: ClickData,
@@ -230,7 +240,7 @@ async function getLinkAndProductData(
       "Click data is missing shortId, cannot enrich link/product info.",
       firestoreClickId
     );
-    return { productPrice, linkValue };
+    return {productPrice, linkValue};
   }
 
   try {
@@ -244,7 +254,7 @@ async function getLinkAndProductData(
     if (!linksSnapshot.empty) {
       const linkDocSnapshot = linksSnapshot.docs[0];
       const linkDataFromFirestore = linkDocSnapshot.data() as LinkData;
-      link = { ...linkDataFromFirestore, firestoreDocId: linkDocSnapshot.id }; // Include Firestore doc ID
+      link = {...linkDataFromFirestore, firestoreDocId: linkDocSnapshot.id}; // Include Firestore doc ID
 
       linkValue = link.linkValue || 0;
       linkUtmParameters = link.utmParameters;
@@ -302,7 +312,7 @@ async function getLinkAndProductData(
  * @param {ClickData} clickData - Raw click data from Firestore
  * @param {Object} enrichedData - Enriched data containing link and product information
  * @param {string} firestoreClickId - Firestore document ID of the click
- * @returns {Object} Flattened data object ready for Supabase insertion with QR tracking fields
+ * @return {Object} Flattened data object ready for Supabase insertion with QR tracking fields
  */
 function prepareSupabaseData(
   clickData: ClickData,
@@ -315,7 +325,7 @@ function prepareSupabaseData(
   },
   firestoreClickId: string // Firestore document ID of the click
 ) {
-  const { link, product, productPrice, linkValue, linkUtmParameters } =
+  const {link, product, productPrice, linkValue, linkUtmParameters} =
     enrichedData;
 
   // --- Consolidate and Coalesce Fields ---
@@ -341,19 +351,19 @@ function prepareSupabaseData(
   const finalCampaignName = campaignNameFromClick || campaignNameFromLinkUtm; // Or more complex coalescing
 
   const linkTagsString =
-    link?.linkTags && Array.isArray(link.linkTags)
-      ? link.linkTags.join(",")
-      : Array.isArray(clickData.linkTags)
-      ? clickData.linkTags.join(",")
-      : null;
+    link?.linkTags && Array.isArray(link.linkTags) ?
+      link.linkTags.join(",") :
+      Array.isArray(clickData.linkTags) ?
+        clickData.linkTags.join(",") :
+        null;
 
   return {
     // --- Core Click Identifiers & Timestamps ---
     firestore_id: firestoreClickId, // Primary key for upsert
     short_id: clickData.shortId, // Link identifier that was clicked
-    timestamp: clickData.timestamp
-      ? clickData.timestamp.toDate().toISOString()
-      : new Date().toISOString(),
+    timestamp: clickData.timestamp ?
+      clickData.timestamp.toDate().toISOString() :
+      new Date().toISOString(),
     last_updated: new Date().toISOString(), // Always set to now for the Supabase record update time
 
     // --- Click Context ---
@@ -364,21 +374,28 @@ function prepareSupabaseData(
     influencer_id: clickData.influencerId,
 
     // --- QR Code Tracking (NEW) ---
-    source_type: clickData.sourceType || 'link', // Default to 'link' for backward compatibility
+    source_type: clickData.sourceType || "link", // Default to 'link' for backward compatibility
     qr_identifier: clickData.qrIdentifier || null, // QR code identifier if this was a QR scan
     qr_code_id: clickData.qrCodeId || null, // Document ID from qrCodes collection
 
     // --- GeoIP Data (flattened) ---
-    city_name: clickData.geoipData?.city,
-    country_name: clickData.geoipData?.country,
+    // Coalesce both naming patterns (camelCase and lowercase)
+    city_name: clickData.geoipData?.cityName || clickData.geoipData?.city,
+    country_name: clickData.geoipData?.countryName || 
+      clickData.geoipData?.country,
     latitude: clickData.geoipData?.location?.latitude,
     longitude: clickData.geoipData?.location?.longitude,
     time_zone: clickData.geoipData?.location?.timeZone,
     accuracy_radius: clickData.geoipData?.location?.accuracyRadius,
     maxmind_queries_remaining: clickData.geoipData?.maxmindQueriesRemaining,
-    postal_code: clickData.geoipData?.postal,
-    state_iso_code: null, // Region data structure doesn't match state array
-    state_name: clickData.geoipData?.region, // Map region to state_name
+    postal_code: clickData.geoipData?.postalCode || 
+      clickData.geoipData?.postal,
+    // Handle complex state structure - extract from array if present
+    state_iso_code: Array.isArray(clickData.geoipData?.state) && 
+      clickData.geoipData.state[0]?.isoCode || null,
+    state_name: Array.isArray(clickData.geoipData?.state) && 
+      clickData.geoipData.state[0]?.name || 
+      clickData.geoipData?.region, // Fallback to region if state array not present
 
     // --- Link Information (from enrichedData.link or clickData as fallback) ---
     name: finalName, // Consolidated name
