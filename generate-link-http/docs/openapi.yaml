@@ -1,0 +1,556 @@
+openapi: 3.0.3
+info:
+  title: InCarts Link Generation & QR Code API
+  description: |
+    API for generating shoppable links with integrated QR code tracking.
+    
+    Features:
+    - Generate shortened URLs for products across multiple retailers
+    - Create trackable QR codes for physical marketing materials  
+    - Support multiple QR codes per link for campaign tracking
+    - Differentiate between QR scans and direct link clicks
+  version: 1.1.0
+  contact:
+    name: InCarts API Support
+    email: api@incarts.co
+
+servers:
+  - url: https://us-central1-incarts.cloudfunctions.net
+    description: Production server
+  - url: http://localhost:5001/incarts/us-central1
+    description: Local development server
+
+tags:
+  - name: Links
+    description: Link generation and management
+  - name: QR Codes
+    description: QR code creation and tracking
+
+paths:
+  /generateLinkHttp:
+    post:
+      tags:
+        - Links
+        - QR Codes
+      summary: Generate Link with Default QR Code
+      description: |
+        Creates a shortened link with an automatically generated default QR code.
+        Supports three types of links:
+        - Type 1: Custom URL links
+        - Type 2: Product links (retailer-specific)
+        - Type 3: Shoppable page links
+      operationId: generateLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateLinkRequest'
+            examples:
+              customUrl:
+                summary: Custom URL Link
+                value:
+                  linkType: "1"
+                  retailerStep: 2
+                  linkName: "Black Friday Sale"
+                  publicLinkName: "50% Off Everything"
+                  originalUrl: "https://example.com/black-friday"
+                  linkValue: 500
+                  utmParameters:
+                    utm_source: "qr_code"
+                    utm_medium: "print"
+                    utm_campaign: "black_friday_2025"
+                  projectId: "project-123"
+                  projectName: "Holiday Campaign"
+                  userId: "user-456"
+                  linkTags: ["sale", "black-friday", "2025"]
+              walmartProduct:
+                summary: Walmart Product Link
+                value:
+                  linkType: "2"
+                  linkName: "TV Deal"
+                  selectedWebsite: "Walmart.com"
+                  selectedAction: "Item Page"
+                  selectedRetailer: "Walmart"
+                  selectedProducts: ["551149382"]
+                  projectId: "project-123"
+                  projectName: "Electronics Campaign"
+                  userId: "user-456"
+              amazonCart:
+                summary: Amazon Multi-Product Cart
+                value:
+                  linkType: "2"
+                  linkName: "Tech Bundle"
+                  selectedWebsite: "Amazon.com"
+                  selectedAction: "Add Items to Cart"
+                  selectedRetailer: "Amazon"
+                  selectedProducts: ["B08N5WRWNW", "B08L5WGQGJ", "B07FZ8S74R"]
+                  projectId: "project-123"
+                  projectName: "Bundle Deals"
+                  userId: "user-456"
+              instacartList:
+                summary: Instacart Shopping List
+                value:
+                  linkType: "2"
+                  linkName: "Weekly Groceries"
+                  selectedWebsite: "Instacart.com"
+                  selectedAction: "Shopping List"
+                  selectedRetailer: "Instacart"
+                  instacartRetailer: "kroger"
+                  shoppingListData:
+                    title: "Family Dinner Ingredients"
+                    imageUrl: "https://example.com/dinner.jpg"
+                    instructions: "Organic preferred"
+                    lineItems:
+                      - upc: "0001111041700"
+                        quantity: 2
+                      - item_name: "Organic Bananas"
+                        quantity: 6
+                  projectId: "project-123"
+                  projectName: "Meal Planning"
+                  userId: "user-456"
+      responses:
+        '200':
+          description: Link successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateLinkResponse'
+              example:
+                success: true
+                shortLink: "https://in2carts.com/w/abc123"
+                shortId: "abc123"
+                qrCodeUrl: "https://storage.googleapis.com/incarts-qr/qr-abc123.png"
+                linkDocId: "link-doc-xyz789"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /createAdditionalQRCode:
+    post:
+      tags:
+        - QR Codes
+      summary: Create Additional QR Code
+      description: |
+        Creates additional QR codes for an existing link, enabling campaign-specific tracking.
+        Each QR code has a unique identifier and can track different marketing channels.
+      operationId: createAdditionalQRCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQRCodeRequest'
+            examples:
+              campaign:
+                summary: Campaign QR Code
+                value:
+                  linkId: "link-doc-123"
+                  identifier: "black-friday-2025"
+                  name: "Black Friday Campaign"
+                  userId: "user-456"
+                  customData:
+                    campaign: "Black Friday"
+                    discount: "50%"
+                    validFrom: "2025-11-24"
+                    validUntil: "2025-11-30"
+              location:
+                summary: Store Location QR Code
+                value:
+                  linkId: "link-doc-123"
+                  identifier: "store-nyc-times-square"
+                  name: "NYC Times Square Store"
+                  userId: "user-456"
+                  customData:
+                    storeLocation: "Times Square"
+                    storeId: "NYC-001"
+                    displayType: "window"
+                    floor: "1"
+              socialMedia:
+                summary: Social Media QR Code
+                value:
+                  linkId: "link-doc-123"
+                  identifier: "instagram-tech-review"
+                  name: "Tech Influencer Campaign"
+                  userId: "user-456"
+                  customData:
+                    platform: "Instagram"
+                    influencer: "@techreviewer"
+                    followers: 50000
+                    postDate: "2025-01-15"
+      responses:
+        '200':
+          description: QR code successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateQRCodeResponse'
+              example:
+                success: true
+                qrCodeId: "black-friday-2025"
+                qrCodeUrl: "https://storage.googleapis.com/incarts-qr/qr-black-friday-2025.png"
+                qrUrl: "https://in2carts.com/qr/black-friday-2025"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  schemas:
+    GenerateLinkRequest:
+      type: object
+      required:
+        - linkType
+        - linkName
+        - projectId
+        - projectName
+        - userId
+      properties:
+        linkType:
+          type: string
+          enum: ["1", "2", "3"]
+          description: |
+            Type of link to create:
+            - 1: Custom URL link
+            - 2: Product link (retailer-specific)
+            - 3: Shoppable page link
+        linkName:
+          type: string
+          description: Private name for internal reference
+          example: "Black Friday TV Deal"
+        publicLinkName:
+          type: string
+          description: Public-facing display name
+          example: "50% Off Samsung TV"
+        projectId:
+          type: string
+          description: Project identifier
+          example: "project-123"
+        projectName:
+          type: string
+          description: Project display name
+          example: "Holiday Campaign 2025"
+        userId:
+          type: string
+          description: User creating the link
+          example: "user-456"
+        linkValue:
+          type: number
+          description: Value for analytics tracking
+          default: 0
+          example: 500
+        utmParameters:
+          type: object
+          description: UTM tracking parameters
+          properties:
+            utm_source:
+              type: string
+            utm_medium:
+              type: string
+            utm_campaign:
+              type: string
+            utm_term:
+              type: string
+            utm_content:
+              type: string
+        linkTags:
+          type: array
+          items:
+            type: string
+          description: Tags for organization
+          example: ["electronics", "black-friday", "2025"]
+        
+        # Type 1 specific
+        retailerStep:
+          type: integer
+          enum: [1, 2]
+          description: For custom URLs - 1=retailer selection, 2=custom link
+        originalUrl:
+          type: string
+          format: uri
+          description: The destination URL for custom links
+          example: "https://example.com/products/tv"
+        customUrl:
+          type: string
+          description: Optional custom short URL
+        
+        # Type 2 specific
+        selectedWebsite:
+          type: string
+          enum: ["Walmart.com", "Amazon.com", "Kroger.com", "Instacart.com"]
+          description: Selected retailer website
+        selectedAction:
+          type: string
+          enum: ["Item Page", "Add Items to Cart", "Shopping List", "Recipe"]
+          description: Action to perform
+        selectedRetailer:
+          type: string
+          enum: ["Walmart", "Amazon", "Kroger", "Instacart"]
+          description: Retailer name
+        instacartRetailer:
+          type: string
+          description: Specific retailer for Instacart
+          example: "kroger"
+        selectedProducts:
+          type: array
+          items:
+            type: string
+          description: Array of product IDs/ASINs/UPCs
+          example: ["B08N5WRWNW", "B08L5WGQGJ"]
+        
+        # Shopping List specific
+        shoppingListData:
+          type: object
+          properties:
+            title:
+              type: string
+              example: "Weekly Groceries"
+            imageUrl:
+              type: string
+              format: uri
+              example: "https://example.com/list.jpg"
+            instructions:
+              type: string
+              example: "Buy organic when available"
+            lineItems:
+              type: array
+              items:
+                type: object
+                properties:
+                  upc:
+                    type: string
+                    example: "0001111041700"
+                  quantity:
+                    type: number
+                    example: 2
+                  item_name:
+                    type: string
+                    example: "Organic Bananas"
+        
+        # Recipe specific
+        recipeData:
+          type: object
+          properties:
+            title:
+              type: string
+              example: "Spaghetti Carbonara"
+            image_url:
+              type: string
+              format: uri
+            author:
+              type: string
+            servings:
+              type: number
+            cooking_time:
+              type: number
+              description: Cooking time in minutes
+            instructions:
+              type: array
+              items:
+                type: string
+            ingredients:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  display_text:
+                    type: string
+                  upcs:
+                    type: array
+                    items:
+                      type: string
+                  measurements:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        quantity:
+                          type: number
+                        unit:
+                          type: string
+        
+        # Type 3 specific
+        shoppablePageId:
+          type: string
+          description: ID of shoppable page
+        
+        # Backup products
+        useBackups:
+          type: boolean
+          description: Enable backup products feature
+        backupProducts:
+          type: string
+          description: JSON string of backup product configurations
+
+    GenerateLinkResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation succeeded
+        shortLink:
+          type: string
+          format: uri
+          description: The shortened URL
+          example: "https://in2carts.com/w/abc123"
+        shortId:
+          type: string
+          description: Short code identifier
+          example: "abc123"
+        qrCodeUrl:
+          type: string
+          format: uri
+          description: URL to the generated QR code image
+          example: "https://storage.googleapis.com/incarts-qr/qr-abc123.png"
+        linkDocId:
+          type: string
+          description: Firestore document ID for the link
+          example: "link-doc-xyz789"
+        error:
+          type: string
+          description: Error message if success is false
+
+    CreateQRCodeRequest:
+      type: object
+      required:
+        - linkId
+        - identifier
+        - name
+        - userId
+      properties:
+        linkId:
+          type: string
+          description: Existing link document ID
+          example: "link-doc-123"
+        identifier:
+          type: string
+          pattern: '^[a-zA-Z0-9-]+$'
+          description: |
+            Unique identifier for the QR code.
+            Should be descriptive and use only alphanumeric characters and hyphens.
+          example: "black-friday-2025"
+        name:
+          type: string
+          description: Display name for the QR code
+          example: "Black Friday Campaign"
+        userId:
+          type: string
+          description: User creating the QR code
+          example: "user-456"
+        customData:
+          type: object
+          additionalProperties: true
+          description: Optional metadata for tracking and analytics
+          example:
+            campaign: "Black Friday"
+            discount: "50%"
+            location: "Times Square"
+
+    CreateQRCodeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation succeeded
+        qrCodeId:
+          type: string
+          description: The QR code identifier
+          example: "black-friday-2025"
+        qrCodeUrl:
+          type: string
+          format: uri
+          description: URL to the generated QR code image
+          example: "https://storage.googleapis.com/incarts-qr/qr-black-friday-2025.png"
+        qrUrl:
+          type: string
+          format: uri
+          description: The URL encoded in the QR code
+          example: "https://in2carts.com/qr/black-friday-2025"
+        error:
+          type: string
+          description: Error message if success is false
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Detailed error message
+          example: "Missing required fields: linkType, linkName"
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingFields:
+              summary: Missing Required Fields
+              value:
+                success: false
+                error: "Missing required fields: linkType, linkName, projectId"
+            invalidLinkType:
+              summary: Invalid Link Type
+              value:
+                success: false
+                error: "Invalid link type. Must be 1, 2, or 3"
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "Link not found"
+    
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "QR code with identifier 'black-friday-2025' already exists for this link"
+    
+    InternalServerError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: "An unexpected error occurred"
+
+  securitySchemes:
+    corsOrigin:
+      type: apiKey
+      in: header
+      name: Origin
+      description: |
+        CORS validation based on origin header.
+        Allowed origins:
+        - http://localhost:3000
+        - https://*.flutterflow.app
+        - https://*.incarts.beta
+        - https://beta.incarts.co
+        - https://staging.incarts.co
+        - https://app.incarts.co
+
+security:
+  - corsOrigin: []
