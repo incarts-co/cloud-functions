@@ -7,6 +7,7 @@
 
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import * as admin from "firebase-admin";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import axios from "axios";
@@ -29,8 +30,10 @@ const corsHandler = cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 });
 
-// Initialize Firebase Admin
-initializeApp();
+// Initialize Firebase Admin (only if not already initialized)
+if (!admin.apps.length) {
+  initializeApp();
+}
 const db = getFirestore();
 
 const QR_CODE_GENERATOR_API =
