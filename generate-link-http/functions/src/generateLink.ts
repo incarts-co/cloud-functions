@@ -122,6 +122,10 @@ interface GenerateLinkRequest {
   // For backup products feature
   useBackups?: boolean; // Flag indicating if backup products are enabled
   backupProducts?: string; // JSON string of backup product configurations
+  
+  // For default QR code customization
+  defaultQRIdentifier?: string; // Custom identifier for the default QR code
+  defaultQRName?: string; // Custom display name for the default QR code
 }
 
 // Interface for the function response
@@ -171,6 +175,34 @@ const URL_SHORTENER_API =
   "https://incarts-url-shortener-qob6vapoca-uc.a.run.app/shorten";
 const QR_CODE_GENERATOR_API =
   "https://us-central1-incarts.cloudfunctions.net/generateQRCode";
+
+/**
+ * Validate QR identifier for URL safety and uniqueness requirements
+ */
+function validateQRIdentifier(identifier: string): { valid: boolean; error?: string } {
+  // Length check
+  if (identifier.length < 3 || identifier.length > 50) {
+    return { valid: false, error: "Identifier must be 3-50 characters long" };
+  }
+  
+  // Character validation: lowercase letters, numbers, hyphens only
+  if (!/^[a-z0-9-]+$/.test(identifier)) {
+    return { valid: false, error: "Use only lowercase letters, numbers, and hyphens" };
+  }
+  
+  // No double hyphens or leading/trailing hyphens
+  if (/--/.test(identifier) || /^-|-$/.test(identifier)) {
+    return { valid: false, error: "Invalid hyphen placement" };
+  }
+  
+  // Reserved words check
+  const reserved = ["api", "admin", "qr", "link", "test", "w", "app", "www"];
+  if (reserved.includes(identifier)) {
+    return { valid: false, error: "This identifier is reserved" };
+  }
+  
+  return { valid: true };
+}
 
 /**
  * Generate a unique document ID
@@ -411,6 +443,8 @@ async function createLinkDocument(data: any): Promise<any> {
  * @param {string} params.qrCodeUrl - The generated QR code image URL
  * @param {string} params.projectId - The project identifier
  * @param {string} params.userId - The user creating the QR code
+ * @param {string} params.identifier - The QR code identifier
+ * @param {string} params.name - The display name for the QR code
  * @returns {Promise<Object>} Result object with success status and qrCodeId
  */
 async function createDefaultQRRecord(params: {
@@ -419,17 +453,19 @@ async function createDefaultQRRecord(params: {
   qrCodeUrl: string;
   projectId: string;
   userId: string;
+  identifier: string;
+  name: string;
 }): Promise<{ success: boolean; qrCodeId?: string; error?: string }> {
   try {
-    // Use a meaningful default ID
-    const qrCodeId = `default-${params.linkId}`;
+    // Use the provided identifier as document ID
+    const qrCodeId = params.identifier;
     const qrRef = db.collection("qrCodes").doc(qrCodeId);
 
     const qrRecord = {
       qrCodeId: qrCodeId,  // Required for URL shortener lookup
       linkId: params.linkId,
       shortId: params.shortId,
-      name: "Default QR Code",
+      name: params.name,  // Use provided name
       qrCodeUrl: params.qrCodeUrl,
       createdAt: new Date(),
       createdBy: params.userId,
@@ -963,12 +999,51 @@ export const generateLinkHttp = onRequest(
 
           // Create default QR record in qrCodes collection
           if (linkDocId && qrResult.publicUrl && shortenResult.shortId) {
+            // Determine QR identifier and name
+            let qrIdentifier = data.defaultQRIdentifier;
+            const qrName = data.defaultQRName || "Default QR Code";
+
+            // If custom identifier provided, validate it
+            if (qrIdentifier) {
+              const validation = validateQRIdentifier(qrIdentifier);
+              if (!validation.valid) {
+                response.status(400).json({
+                  success: false,
+                  error: `Invalid default QR identifier: ${validation.error}`,
+                });
+                return;
+              }
+
+              // Check if identifier already exists
+              const existingQR = await db.collection("qrCodes").doc(qrIdentifier).get();
+              if (existingQR.exists) {
+                // Generate suggestions
+                const suggestions = [
+                  `${qrIdentifier}-${Date.now()}`,
+                  `${qrIdentifier}-v1`,
+                  `${qrIdentifier}-${linkDocId.slice(-6)}`,
+                ];
+                response.status(409).json({
+                  success: false,
+                  error: `QR identifier '${qrIdentifier}' is already in use`,
+                  suggestions: suggestions,
+                });
+                return;
+              }
+            } else {
+              // Generate default identifier
+              qrIdentifier = `default-${linkDocId}`;
+            }
+
+            // Create QR record with the determined identifier
             const qrRecordResult = await createDefaultQRRecord({
               linkId: linkDocId,
               shortId: shortenResult.shortId,
               qrCodeUrl: qrResult.publicUrl,
               projectId: data.projectId,
               userId: data.userId,
+              identifier: qrIdentifier,
+              name: qrName,
             });
 
             if (!qrRecordResult.success) {
