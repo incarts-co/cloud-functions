@@ -11,18 +11,57 @@
  */
 
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
-import {createClient} from "@supabase/supabase-js";
+import {createClient, type SupabaseClient} from "@supabase/supabase-js";
 import * as admin from "firebase-admin";
 import {logger} from "firebase-functions";
+import {defineSecret} from "firebase-functions/params";
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
-// Initialize Supabase client
-const supabaseUrl = "https://pkhqcfcdgclksrwrpfqs.supabase.co";
-const supabaseKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBraHFjZmNkZ2Nsa3Nyd3JwZnFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTk0MTkzMzgsImV4cCI6MjAzNDk5NTMzOH0.hcxzo05NPDGDSexARi2u1q2I2rkueBc6dJu44R_dVbs";
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrlSecret = defineSecret("link-clicks-supabase-url");
+const supabaseServiceRoleKeySecret = defineSecret(
+  "link-clicks-supabase-service-role-key"
+);
+
+let supabaseClient: SupabaseClient | null = null;
+
+function getSupabaseClient({
+  supabaseUrl,
+  supabaseServiceRoleKey,
+}: {
+  supabaseUrl: string | undefined;
+  supabaseServiceRoleKey: string | undefined;
+}): SupabaseClient {
+  if (supabaseClient) {
+    return supabaseClient;
+  }
+
+  const resolvedSupabaseUrl = supabaseUrl ?? process.env.SUPABASE_URL;
+  const resolvedServiceRoleKey =
+    supabaseServiceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!resolvedSupabaseUrl) {
+    logger.error("Missing Supabase URL secret or SUPABASE_URL env var");
+    throw new Error("Missing Supabase URL configuration");
+  }
+
+  if (!resolvedServiceRoleKey) {
+    logger.error(
+      "Missing Supabase service role secret or SUPABASE_SERVICE_ROLE_KEY env var"
+    );
+    throw new Error("Missing Supabase service role configuration");
+  }
+
+  supabaseClient = createClient(resolvedSupabaseUrl, resolvedServiceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  return supabaseClient;
+}
 
 interface GeoLocation {
   accuracyRadius?: number;
@@ -142,6 +181,7 @@ export const syncClickToSupabase = onDocumentWritten(
     memory: "1GiB",
     timeoutSeconds: 300,
     maxInstances: 10,
+    secrets: [supabaseUrlSecret, supabaseServiceRoleKeySecret],
   },
   async (event) => {
     const firestoreClickId = event.params.clickId; // Firestore document ID of the click
@@ -178,6 +218,10 @@ export const syncClickToSupabase = onDocumentWritten(
         JSON.stringify(supabaseData, null, 2)
       );
 
+      const supabase = getSupabaseClient({
+        supabaseUrl: supabaseUrlSecret.value(),
+        supabaseServiceRoleKey: supabaseServiceRoleKeySecret.value(),
+      });
       const {data, error} = await supabase
         .from("link_clicks") // Your staging table name in Supabase
         .upsert(supabaseData, {onConflict: "firestore_id"}) // Assuming 'firestore_id' is unique in Supabase
