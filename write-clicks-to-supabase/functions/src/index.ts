@@ -19,9 +19,9 @@ import {defineSecret} from "firebase-functions/params";
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
-const supabaseUrlSecret = defineSecret("link-clicks-supabase-url");
+const supabaseUrlSecret = defineSecret("LINK_CLICKS_SUPABASE_URL");
 const supabaseServiceRoleKeySecret = defineSecret(
-  "link-clicks-supabase-service-role-key"
+  "LINK_CLICKS_SUPABASE_SERVICE_ROLE_KEY"
 );
 
 let supabaseClient: SupabaseClient | null = null;
