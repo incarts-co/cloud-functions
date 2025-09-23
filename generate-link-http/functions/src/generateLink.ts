@@ -126,6 +126,9 @@ interface GenerateLinkRequest {
   // For default QR code customization
   defaultQRIdentifier?: string; // Custom identifier for the default QR code
   defaultQRName?: string; // Custom display name for the default QR code
+
+  // Walmart add-to-cart preferences
+  walmartAllowPdp?: boolean; // Enable Walmart PDP fulfillment for single-item carts
 }
 
 // Interface for the function response
@@ -525,7 +528,9 @@ async function generateLinkUrl(
     ingredients: any[];
     landing_page_configuration?: any;
   },
-  useBackups?: boolean
+  useBackups?: boolean,
+  walmartAllowPdp?: boolean,
+  preferWalmartFulfillment?: boolean
 ): Promise<string> {
   if (selectedWebsite === "Walmart.com") {
     if (selectedAction === "Add Items to Cart") {
@@ -543,7 +548,24 @@ async function generateLinkUrl(
       }
 
       // Always use the affil.walmart.com domain with items parameter
-      const url = `https://affil.walmart.com/cart/addToCart?items=${itemIds}`;
+      let url = `https://affil.walmart.com/cart/addToCart?items=${itemIds}`;
+
+      const isSinglePrimaryItem =
+        Array.isArray(selectedProducts) &&
+        selectedProducts.length === 1 &&
+        ((typeof selectedProducts[0] === "string" && selectedProducts[0].length > 0) ||
+          (selectedProducts[0] &&
+            typeof selectedProducts[0] === "object" &&
+            "primaryId" in selectedProducts[0] &&
+            selectedProducts[0].primaryId));
+
+      const allowPdpRequested = Boolean(
+        walmartAllowPdp ?? preferWalmartFulfillment
+      );
+
+      if (allowPdpRequested && !useBackups && isSinglePrimaryItem) {
+        url += "&allow_pdp=true";
+      }
 
       logger.info("Generated Walmart cart URL", {
         useBackups: useBackups || false,
@@ -763,7 +785,8 @@ export const generateLinkHttp = onRequest(
               data.instacartRetailer,
               data.shoppingListData,
               data.recipeData,
-              data.useBackups
+              data.useBackups,
+              data.walmartAllowPdp
             );
 
             linkTypeLabel = data.selectedAction;
