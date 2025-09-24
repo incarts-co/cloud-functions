@@ -1,11 +1,9 @@
 /**
- * @fileoverview Link Generation Cloud Function with QR Code Tracking
- * @description Handles generation of shoppable links with QR tracking
- * @module cloud-functions/generate-link-http
- * @related docs/qr-code-integration-plan.md
+ * Link Generation Cloud Function
  *
  * Version History:
- * v1.1.0 (Sep-06-2025) - Add QR code tracking integration with qrCodes collection
+ * v1.0.5 (Jul-29-2025) - SECURITY FIX: Replace remaining hardcoded API keys with environment variables for shopping lists and recipes
+ * v1.0.4 (Jul-29-2025) - SECURITY FIX: Remove hardcoded API key, use environment variable
  * v1.0.3 (May-15-2025) - Add staging.incarts.co to CORS allowed origins
  * v1.0.2 (Apr-29-2025) - Add backup products feature
  * v1.0.1 (Mar-11-2025) - Add rrd.incarts.co to CORs allowed origins
@@ -17,11 +15,6 @@
  *
  * It replaces the client-side link generation logic in the Flutter application.
  *
- * QR Code Integration Feature:
- * - Creates a separate qrCodes collection for individual QR code tracking
- * - Maintains backward compatibility with existing links
- * - Supports future expansion for multiple QR codes per link
- * 
  * Backup Products Feature:
  * - useBackups: Boolean flag indicating backup products are enabled
  * - backupProducts: JSON string containing an array of objects with structure:
@@ -46,7 +39,6 @@ const corsHandler = cors({
     /^https:\/\/rrd\.incarts\.co$/,
     /^https:\/\/beta\.incarts\.co$/,
     /^https:\/\/staging\.incarts\.co$/,
-    /^https:\/\/app\.incarts\.co$/,
     // allow everything from us-central1.hosted.app and subdomains
     /^https:\/\/.*\.us-central1\.hosted\.app$/,
   ],
@@ -121,14 +113,34 @@ interface GenerateLinkRequest {
 
   // For backup products feature
   useBackups?: boolean; // Flag indicating if backup products are enabled
-  backupProducts?: string; // JSON string of backup product configurations
-  
+  backupProducts?: string | NormalizedBackupProduct[] | Record<string, any> | Array<Record<string, any>>; // Backup configurations
+
   // For default QR code customization
   defaultQRIdentifier?: string; // Custom identifier for the default QR code
   defaultQRName?: string; // Custom display name for the default QR code
 
-  // Walmart add-to-cart preferences
+  // Walmart add-to-cart preferences and advanced options
   walmartAllowPdp?: boolean; // Enable Walmart PDP fulfillment for single-item carts
+  walmartCartMode?: string; // Preferred Walmart cart mode
+  allowPdp?: boolean; // Explicit allow PDP flag
+  allow_pdp?: boolean; // Legacy allow PDP flag
+  fallbackUrl?: string; // Optional fallback URL alias
+  redirectUrl?: string; // Optional redirect URL alias
+  cartUrlOptions?: CartUrlOptions | string; // Advanced Walmart cart configuration
+  cartOptions?: CartUrlOptions | string; // Alias for cartUrlOptions
+  cartDefaults?: CartUrlOptions | string; // Alias for default cart options
+  cartUrlConfig?: CartUrlOptions | string; // Alias for cart configuration
+  storeId?: string; // Preferred store identifier
+  defaultStoreId?: string; // Default store identifier
+  preferredStoreId?: string; // Preferred store identifier alias
+  smartCart?: {
+    cartUrlOptions?: CartUrlOptions | string;
+    cartOptions?: CartUrlOptions | string;
+    storeId?: string;
+    defaultStoreId?: string;
+    preferredStoreId?: string;
+    [key: string]: any;
+  };
 }
 
 // Interface for the function response
@@ -173,39 +185,26 @@ interface LinkDocumentData {
   [key: string]: any; // Allow for additional fields
 }
 
+type CartUrlOptions = {
+  mode?: string;
+  fallbackMode?: string;
+  includeStoreId?: string;
+  preferItemsForWalmart?: boolean;
+  preferOffersForMarketplace?: boolean;
+  [key: string]: any;
+};
+
+type NormalizedBackupProduct = {
+  primaryId: string;
+  backupIds: string[];
+  quantity?: number;
+};
+
 // Constants for API endpoints
 const URL_SHORTENER_API =
   "https://incarts-url-shortener-qob6vapoca-uc.a.run.app/shorten";
 const QR_CODE_GENERATOR_API =
   "https://us-central1-incarts.cloudfunctions.net/generateQRCode";
-
-/**
- * Validate QR identifier for URL safety and uniqueness requirements
- */
-function validateQRIdentifier(identifier: string): { valid: boolean; error?: string } {
-  // Length check
-  if (identifier.length < 3 || identifier.length > 50) {
-    return { valid: false, error: "Identifier must be 3-50 characters long" };
-  }
-  
-  // Character validation: lowercase letters, numbers, hyphens only
-  if (!/^[a-z0-9-]+$/.test(identifier)) {
-    return { valid: false, error: "Use only lowercase letters, numbers, and hyphens" };
-  }
-  
-  // No double hyphens or leading/trailing hyphens
-  if (/--/.test(identifier) || /^-|-$/.test(identifier)) {
-    return { valid: false, error: "Invalid hyphen placement" };
-  }
-  
-  // Reserved words check
-  const reserved = ["api", "admin", "qr", "link", "test", "w", "app", "www"];
-  if (reserved.includes(identifier)) {
-    return { valid: false, error: "This identifier is reserved" };
-  }
-  
-  return { valid: true };
-}
 
 /**
  * Generate a unique document ID
@@ -217,6 +216,307 @@ function generateUniqueId(length: number = 20): string {
   for (let i = 0; i < length; i++) {
     result += characters.charAt(Math.floor(Math.random() * characters.length));
   }
+  return result;
+}
+
+function isPlainObject(value: any): value is Record<string, any> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function safeParseJson<T = any>(value: string, context: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    logger.error(`Failed to parse ${context}`, { value, error });
+    return null;
+  }
+}
+
+function firstString(...values: any[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function extractProductIdentifier(input: any): string | undefined {
+  if (!input) {
+    return undefined;
+  }
+
+  if (typeof input === "string" && input.trim().length > 0) {
+    return input.trim();
+  }
+
+  if (!isPlainObject(input)) {
+    return undefined;
+  }
+
+  const candidate =
+    input.retailerItemId ??
+    input.primaryId ??
+    input.primaryItemId ??
+    input.itemId ??
+    input.productId ??
+    input.id ??
+    input.shortId ??
+    input.urlShortCode ??
+    input.urlShortcode ??
+    input.shortcode ??
+    input.url_short_code;
+
+  if (typeof candidate === "string" && candidate.trim().length > 0) {
+    return candidate.trim();
+  }
+
+  return undefined;
+}
+
+function normalizeBackupEntry(entry: any): NormalizedBackupProduct | null {
+  if (!entry) {
+    return null;
+  }
+
+  if (typeof entry === "string") {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return { primaryId: trimmed, backupIds: [] };
+  }
+
+  const primaryId =
+    (typeof entry.primaryId === "string" && entry.primaryId.trim()) ||
+    (typeof entry.primaryItemId === "string" && entry.primaryItemId.trim()) ||
+    extractProductIdentifier(entry.primary) ||
+    extractProductIdentifier(entry);
+
+  if (!primaryId) {
+    return null;
+  }
+
+  let backupIds: string[] = [];
+
+  if (Array.isArray(entry.backupIds)) {
+    backupIds = entry.backupIds
+      .map((value: unknown) => extractProductIdentifier(value))
+      .filter((value: string | undefined): value is string => Boolean(value));
+  } else if (Array.isArray(entry.backups)) {
+    backupIds = entry.backups
+      .map((value: unknown) => extractProductIdentifier(value))
+      .filter((value: string | undefined): value is string => Boolean(value));
+  }
+
+  const uniqueBackupIds = Array.from(new Set(backupIds));
+
+  const quantityCandidate =
+    entry.quantity ??
+    entry.primaryQuantity ??
+    (isPlainObject(entry.primary) ? entry.primary.quantity : undefined);
+
+  let normalizedQuantity: number | undefined;
+  if (typeof quantityCandidate === "number") {
+    normalizedQuantity = quantityCandidate;
+  } else if (
+    typeof quantityCandidate === "string" &&
+    quantityCandidate.trim().length > 0
+  ) {
+    const parsed = parseFloat(quantityCandidate);
+    if (!Number.isNaN(parsed)) {
+      normalizedQuantity = parsed;
+    }
+  }
+
+  const normalized: NormalizedBackupProduct = {
+    primaryId,
+    backupIds: uniqueBackupIds,
+  };
+
+  if (typeof normalizedQuantity === "number" && normalizedQuantity > 0) {
+    normalized.quantity = normalizedQuantity;
+  }
+
+  return normalized;
+}
+
+function normalizeBackupProducts(
+  raw: GenerateLinkRequest["backupProducts"]
+): NormalizedBackupProduct[] | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  let parsed: any = raw;
+
+  if (typeof raw === "string") {
+    const parsedValue = safeParseJson<any>(raw, "backupProducts payload");
+    if (!parsedValue) {
+      return undefined;
+    }
+    parsed = parsedValue;
+  }
+
+  if (isPlainObject(parsed) && Array.isArray(parsed.backupProducts)) {
+    parsed = parsed.backupProducts;
+  } else if (isPlainObject(parsed) && Array.isArray(parsed.requestBackups)) {
+    parsed = parsed.requestBackups;
+  }
+
+  if (!Array.isArray(parsed)) {
+    parsed = [parsed];
+  }
+
+  const normalized: NormalizedBackupProduct[] = [];
+
+  for (const entry of parsed) {
+    const normalizedEntry = normalizeBackupEntry(entry);
+    if (normalizedEntry) {
+      normalized.push(normalizedEntry);
+    }
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function coerceBoolean(value: any): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function createUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch (_error) {
+    try {
+      return new URL(value, "https://in2carts.com");
+    } catch (innerError) {
+      logger.error("Failed to parse URL", { value, error: innerError });
+      return null;
+    }
+  }
+}
+
+function deriveAllowPdpFlag(
+  data: GenerateLinkRequest,
+  longLink: string
+): boolean | undefined {
+  const explicit = coerceBoolean(
+    data.allowPdp ?? data.allow_pdp ?? data.walmartAllowPdp
+  );
+
+  if (typeof explicit === "boolean") {
+    return explicit;
+  }
+
+  const parsedUrl = createUrl(longLink);
+  if (!parsedUrl) {
+    return undefined;
+  }
+
+  const param = parsedUrl.searchParams.get("allow_pdp");
+  return coerceBoolean(param);
+}
+
+function removeUndefinedKeys<T extends Record<string, any>>(input: T): T {
+  Object.keys(input).forEach((key) => {
+    if (input[key] === undefined) {
+      delete input[key];
+    }
+  });
+  return input;
+}
+
+function extractCartUrlOptions(
+  data: GenerateLinkRequest
+): CartUrlOptions | undefined {
+  const defaults: CartUrlOptions = {
+    mode: "auto",
+    fallbackMode: "items",
+    includeStoreId: "auto",
+    preferItemsForWalmart: data.walmartCartMode === "offer" ? false : true,
+    preferOffersForMarketplace: data.walmartCartMode === "offer",
+  };
+
+  const candidates = [
+    data.cartUrlOptions,
+    data.cartOptions,
+    data.cartDefaults,
+    data.cartUrlConfig,
+    isPlainObject(data.smartCart) ? data.smartCart.cartUrlOptions : undefined,
+    isPlainObject(data.smartCart) ? data.smartCart.cartOptions : undefined,
+  ];
+
+  const merged: CartUrlOptions = { ...defaults };
+  let hasOverrides = false;
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    let parsedCandidate: any = candidate;
+
+    if (typeof candidate === "string") {
+      parsedCandidate = safeParseJson<CartUrlOptions>(
+        candidate,
+        "cartUrlOptions payload"
+      );
+    }
+
+    if (parsedCandidate && isPlainObject(parsedCandidate)) {
+      Object.assign(merged, parsedCandidate);
+      hasOverrides = true;
+    }
+  }
+
+  return removeUndefinedKeys(hasOverrides ? merged : { ...defaults });
+}
+
+function extractStorePreferences(data: GenerateLinkRequest) {
+  const smartCart = isPlainObject(data.smartCart) ? data.smartCart : undefined;
+
+  const storeId = firstString(data.storeId, smartCart?.storeId);
+  const defaultStoreId = firstString(
+    data.defaultStoreId,
+    smartCart?.defaultStoreId
+  );
+  const preferredStoreId = firstString(
+    data.preferredStoreId,
+    smartCart?.preferredStoreId
+  );
+
+  const result: Record<string, string> = {};
+
+  if (storeId) {
+    result.storeId = storeId;
+  }
+  if (defaultStoreId) {
+    result.defaultStoreId = defaultStoreId;
+  }
+  if (preferredStoreId) {
+    result.preferredStoreId = preferredStoreId;
+  }
+
   return result;
 }
 
@@ -296,8 +596,7 @@ async function createInstacartShoppingList(data: {
           Accept: "application/json",
           "Accept-Language": "en-CA",
           "Content-Type": "application/json",
-          Authorization:
-            "Bearer keys.lLRxMEjBL9tp3VLVnDI4p2BDV5Bksjk2patIO0YAjL4",
+          Authorization: `Bearer ${process.env.INSTACART_API_KEY}`,
         },
       }
     );
@@ -375,8 +674,7 @@ async function createInstacartRecipe(
           Accept: "application/json",
           "Accept-Language": "en-CA",
           "Content-Type": "application/json",
-          Authorization:
-            "Bearer keys.lLRxMEjBL9tp3VLVnDI4p2BDV5Bksjk2patIO0YAjL4", // Same as shopping list
+          Authorization: `Bearer ${process.env.INSTACART_API_KEY}`, // Same as shopping list
         },
       }
     );
@@ -438,73 +736,6 @@ async function createLinkDocument(data: any): Promise<any> {
 }
 
 /**
- * Create a default QR code record in the qrCodes collection
- * @function
- * @param {Object} params - QR code creation parameters
- * @param {string} params.linkId - The parent link document ID
- * @param {string} params.shortId - The shortened URL identifier
- * @param {string} params.qrCodeUrl - The generated QR code image URL
- * @param {string} params.projectId - The project identifier
- * @param {string} params.userId - The user creating the QR code
- * @param {string} params.identifier - The QR code identifier
- * @param {string} params.name - The display name for the QR code
- * @returns {Promise<Object>} Result object with success status and qrCodeId
- */
-async function createDefaultQRRecord(params: {
-  linkId: string;
-  shortId: string;
-  qrCodeUrl: string;
-  projectId: string;
-  userId: string;
-  identifier: string;
-  name: string;
-}): Promise<{ success: boolean; qrCodeId?: string; error?: string }> {
-  try {
-    // Use the provided identifier as document ID
-    const qrCodeId = params.identifier;
-    const qrRef = db.collection("qrCodes").doc(qrCodeId);
-
-    const qrRecord = {
-      qrCodeId: qrCodeId,  // Required for URL shortener lookup
-      linkId: params.linkId,
-      shortId: params.shortId,
-      name: params.name,  // Use provided name
-      qrCodeUrl: params.qrCodeUrl,
-      createdAt: new Date(),
-      createdBy: params.userId,
-      projectId: params.projectId,
-      isDefault: true,
-      clickCount: 0,
-    };
-
-    // Set the document with the generated ID
-    await qrRef.set(qrRecord);
-
-    // Update the parent link document with qrCodeCount
-    await db.collection("links").doc(params.linkId).update({
-      qrCodeCount: 1,
-    });
-
-    logger.info("Created default QR record", {
-      qrCodeId,
-      linkId: params.linkId,
-      shortId: params.shortId,
-    });
-
-    return {
-      success: true,
-      qrCodeId,
-    };
-  } catch (error: any) {
-    logger.error("Error creating QR record:", error);
-    return {
-      success: false,
-      error: error.message || "Failed to create QR record",
-    };
-  }
-}
-
-/**
  * Generate a link URL based on retailer and product information
  */
 async function generateLinkUrl(
@@ -529,8 +760,7 @@ async function generateLinkUrl(
     landing_page_configuration?: any;
   },
   useBackups?: boolean,
-  walmartAllowPdp?: boolean,
-  preferWalmartFulfillment?: boolean
+  walmartAllowPdp?: boolean | string | number
 ): Promise<string> {
   if (selectedWebsite === "Walmart.com") {
     if (selectedAction === "Add Items to Cart") {
@@ -550,21 +780,15 @@ async function generateLinkUrl(
       // Always use the affil.walmart.com domain with items parameter
       let url = `https://affil.walmart.com/cart/addToCart?items=${itemIds}`;
 
+      const allowPdpRequested = coerceBoolean(walmartAllowPdp);
       const isSinglePrimaryItem =
+        !useBackups &&
         Array.isArray(selectedProducts) &&
-        selectedProducts.length === 1 &&
-        ((typeof selectedProducts[0] === "string" && selectedProducts[0].length > 0) ||
-          (selectedProducts[0] &&
-            typeof selectedProducts[0] === "object" &&
-            "primaryId" in selectedProducts[0] &&
-            selectedProducts[0].primaryId));
+        selectedProducts.length === 1;
 
-      const allowPdpRequested = Boolean(
-        walmartAllowPdp ?? preferWalmartFulfillment
-      );
-
-      if (allowPdpRequested && !useBackups && isSinglePrimaryItem) {
-        url += "&allow_pdp=true";
+      if (allowPdpRequested && isSinglePrimaryItem) {
+        const separator = url.includes("?") ? "&" : "?";
+        url += `${separator}allow_pdp=true`;
       }
 
       logger.info("Generated Walmart cart URL", {
@@ -777,6 +1001,9 @@ export const generateLinkHttp = onRequest(
               return;
             }
 
+            const allowPdpRequest =
+              data.allowPdp ?? data.allow_pdp ?? data.walmartAllowPdp;
+
             // Generate the link URL based on the retailer and products
             originalUrl = await generateLinkUrl(
               data.selectedWebsite,
@@ -786,7 +1013,7 @@ export const generateLinkHttp = onRequest(
               data.shoppingListData,
               data.recipeData,
               data.useBackups,
-              data.walmartAllowPdp
+              allowPdpRequest
             );
 
             linkTypeLabel = data.selectedAction;
@@ -900,14 +1127,7 @@ export const generateLinkHttp = onRequest(
           }
 
           // Generate QR code
-          // Precision change: encode the QR to use the dedicated QR route like additional QR codes
-          // This ensures scans are tracked as sourceType = 'qr'
-          const qrIdentifierForImage =
-            (data.defaultQRIdentifier && typeof data.defaultQRIdentifier === "string"
-              ? data.defaultQRIdentifier
-              : `default-${linkDocId}`);
-          const qrUrlForImage = `https://in2carts.com/qr/${qrIdentifierForImage}`;
-          const qrResult = await generateQrCode(qrUrlForImage);
+          const qrResult = await generateQrCode(shortenResult.shortURL);
 
           if (!qrResult.success) {
             response.status(500).json({
@@ -956,9 +1176,18 @@ export const generateLinkHttp = onRequest(
             linkTags: data.linkTags || [],
           };
 
-          // Add custom URL if provided
-          if (data.customUrl) {
-            documentData.customUrl = data.customUrl;
+          documentData.shortId = shortenResult.shortId;
+
+          const normalizedBackupProducts = normalizeBackupProducts(
+            data.backupProducts
+          );
+
+          const fallbackUrl =
+            data.customUrl || data.redirectUrl || data.fallbackUrl;
+          if (fallbackUrl) {
+            documentData.customUrl = fallbackUrl;
+            documentData.redirectUrl = fallbackUrl;
+            documentData.fallbackUrl = fallbackUrl;
           }
 
           // Add retailer-specific fields if applicable
@@ -985,34 +1214,55 @@ export const generateLinkHttp = onRequest(
             documentData.siteRetailer = data.instacartRetailer || "";
           }
 
-          // Add backup products data if provided
-          if (data.useBackups) {
-            documentData.useBackups = data.useBackups;
+          if (normalizedBackupProducts) {
+            documentData.useBackups = true;
+            documentData.backupProducts = normalizedBackupProducts;
+          } else {
+            if (data.useBackups) {
+              documentData.useBackups = data.useBackups;
+            }
+            if (data.backupProducts) {
+              documentData.legacyBackupProducts = data.backupProducts;
+            }
+          }
 
-            // Parse backupProducts from string to JSON object if it's a string
-            if (
-              data.backupProducts &&
-              typeof data.backupProducts === "string"
-            ) {
-              try {
-                // Parse the JSON string into an actual object
-                const parsedBackupProducts = JSON.parse(data.backupProducts);
-                documentData.backupProducts = parsedBackupProducts;
+          const isWalmartAddToCart =
+            data.linkType === "2" &&
+            data.selectedWebsite === "Walmart.com" &&
+            data.selectedAction === "Add Items to Cart";
 
-                logger.info("Successfully parsed backupProducts JSON", {
-                  parsedBackupProducts,
-                });
-              } catch (e) {
-                logger.error("Error parsing backupProducts JSON", {
-                  backupProducts: data.backupProducts,
-                  error: e,
-                });
-                // Still store the original string if parsing fails
-                documentData.backupProducts = data.backupProducts;
-              }
-            } else {
-              // If it's not a string (already an object), store as is
-              documentData.backupProducts = data.backupProducts;
+          if (isWalmartAddToCart) {
+            const allowPdpFlag = deriveAllowPdpFlag(data, originalUrl);
+            if (typeof allowPdpFlag === "boolean") {
+              documentData.allowPdp = allowPdpFlag;
+              documentData.allow_pdp = allowPdpFlag;
+            }
+
+            const cartUrlOptions = extractCartUrlOptions(data);
+            if (cartUrlOptions) {
+              documentData.cartUrlOptions = cartUrlOptions;
+            }
+
+            const storePreferences = extractStorePreferences(data);
+            Object.assign(documentData, storePreferences);
+
+            const smartCartPayload: Record<string, any> = {};
+            if (documentData.cartUrlOptions) {
+              smartCartPayload.cartUrlOptions = documentData.cartUrlOptions;
+            }
+            if (storePreferences.storeId) {
+              smartCartPayload.storeId = storePreferences.storeId;
+            }
+            if (storePreferences.defaultStoreId) {
+              smartCartPayload.defaultStoreId = storePreferences.defaultStoreId;
+            }
+            if (storePreferences.preferredStoreId) {
+              smartCartPayload.preferredStoreId =
+                storePreferences.preferredStoreId;
+            }
+
+            if (Object.keys(smartCartPayload).length > 0) {
+              documentData.smartCart = smartCartPayload;
             }
           }
 
@@ -1025,67 +1275,6 @@ export const generateLinkHttp = onRequest(
               error: `Failed to create link document: ${createResult.error}`,
             });
             return;
-          }
-
-          // Create default QR record in qrCodes collection
-          if (linkDocId && qrResult.publicUrl && shortenResult.shortId) {
-            // Determine QR identifier and name
-            let qrIdentifier = data.defaultQRIdentifier;
-            const qrName = data.defaultQRName || "Default QR Code";
-
-            // If custom identifier provided, validate it
-            if (qrIdentifier) {
-              const validation = validateQRIdentifier(qrIdentifier);
-              if (!validation.valid) {
-                response.status(400).json({
-                  success: false,
-                  error: `Invalid default QR identifier: ${validation.error}`,
-                });
-                return;
-              }
-
-              // Check if identifier already exists
-              const existingQR = await db.collection("qrCodes").doc(qrIdentifier).get();
-              if (existingQR.exists) {
-                // Generate suggestions
-                const suggestions = [
-                  `${qrIdentifier}-${Date.now()}`,
-                  `${qrIdentifier}-v1`,
-                  `${qrIdentifier}-${linkDocId.slice(-6)}`,
-                ];
-                response.status(409).json({
-                  success: false,
-                  error: `QR identifier '${qrIdentifier}' is already in use`,
-                  suggestions: suggestions,
-                });
-                return;
-              }
-            } else {
-              // Generate default identifier
-              qrIdentifier = `default-${linkDocId}`;
-            }
-
-            // Create QR record with the determined identifier
-            const qrRecordResult = await createDefaultQRRecord({
-              linkId: linkDocId,
-              shortId: shortenResult.shortId,
-              qrCodeUrl: qrResult.publicUrl,
-              projectId: data.projectId,
-              userId: data.userId,
-              identifier: qrIdentifier,
-              name: qrName,
-            });
-
-            if (!qrRecordResult.success) {
-              // Log the error but don't fail the entire operation
-              logger.warn(
-                "Failed to create QR record, continuing with link creation",
-                {
-                  error: qrRecordResult.error,
-                  linkId: linkDocId,
-                }
-              );
-            }
           }
 
           // Return the success response
