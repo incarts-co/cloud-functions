@@ -1239,16 +1239,12 @@ export const generateLinkHttp = onRequest(
             }
 
             const cartUrlOptions = extractCartUrlOptions(data);
-            if (cartUrlOptions) {
-              documentData.cartUrlOptions = cartUrlOptions;
-            }
-
             const storePreferences = extractStorePreferences(data);
             Object.assign(documentData, storePreferences);
 
             const smartCartPayload: Record<string, any> = {};
-            if (documentData.cartUrlOptions) {
-              smartCartPayload.cartUrlOptions = documentData.cartUrlOptions;
+            if (cartUrlOptions) {
+              smartCartPayload.cartUrlOptions = cartUrlOptions;
             }
             if (storePreferences.storeId) {
               smartCartPayload.storeId = storePreferences.storeId;
