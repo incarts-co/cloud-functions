@@ -274,6 +274,22 @@ function extractProductIdentifier(input: any): string | undefined {
   return undefined;
 }
 
+function extractPrimaryProductIds(products: any): string[] {
+  if (!Array.isArray(products)) {
+    return [];
+  }
+
+  return products
+    .map((product: any) => {
+      if (isPlainObject(product) && product.primary) {
+        return extractProductIdentifier(product.primary);
+      }
+
+      return extractProductIdentifier(product);
+    })
+    .filter((value: string | undefined): value is string => Boolean(value));
+}
+
 function normalizeBackupEntry(entry: any): NormalizedBackupProduct | null {
   if (!entry) {
     return null;
@@ -762,29 +778,26 @@ async function generateLinkUrl(
   useBackups?: boolean,
   walmartAllowPdp?: boolean | string | number
 ): Promise<string> {
+  const primaryProductIds = extractPrimaryProductIds(selectedProducts);
+
   if (selectedWebsite === "Walmart.com") {
     if (selectedAction === "Add Items to Cart") {
       // Always use items parameter for Walmart add to cart URLs
-      let itemIds: string;
-      
-      if (useBackups) {
-        // For backup products flow, extract just the primary IDs
-        itemIds = selectedProducts
-          .map((product: any) => product.primaryId)
-          .join(",");
-      } else {
-        // Standard flow - use product IDs directly
-        itemIds = selectedProducts.join(",");
+      const itemIds = primaryProductIds.join(",");
+
+      if (!itemIds) {
+        logger.warn("Unable to derive Walmart item IDs for link generation", {
+          useBackups: useBackups || false,
+          selectedProducts,
+        });
+        return "";
       }
 
       // Always use the affil.walmart.com domain with items parameter
       let url = `https://affil.walmart.com/cart/addToCart?items=${itemIds}`;
 
       const allowPdpRequested = coerceBoolean(walmartAllowPdp);
-      const isSinglePrimaryItem =
-        !useBackups &&
-        Array.isArray(selectedProducts) &&
-        selectedProducts.length === 1;
+      const isSinglePrimaryItem = !useBackups && primaryProductIds.length === 1;
 
       if (allowPdpRequested && isSinglePrimaryItem) {
         const separator = url.includes("?") ? "&" : "?";
@@ -802,9 +815,14 @@ async function generateLinkUrl(
     } else {
       // Item Page logic
       // Handle both regular products and backup products structure
-      const productId = typeof selectedProducts[0] === 'object' && selectedProducts[0].primaryId
-        ? selectedProducts[0].primaryId
-        : selectedProducts[0];
+      const productId = primaryProductIds[0];
+
+      if (!productId) {
+        logger.warn("Missing primary product ID for Walmart item page", {
+          selectedProducts,
+        });
+        return "";
+      }
       return `https://www.walmart.com/ip/${productId}`;
     }
   } else if (selectedWebsite === "Instacart.com") {
@@ -869,6 +887,29 @@ export const generateLinkHttp = onRequest(
             customUrl: data.customUrl,
             useBackups: data.useBackups,
           });
+
+          // Normalize and validate backup configuration early.
+          // This allows us to treat backups as optional when mappings are empty.
+          const normalizedBackupProducts = normalizeBackupProducts(
+            data.backupProducts
+          );
+          const hasBackupProductIds =
+            Array.isArray(normalizedBackupProducts) &&
+            normalizedBackupProducts.some(
+              (entry) =>
+                Array.isArray(entry.backupIds) && entry.backupIds.length > 0
+            );
+          const useBackupsEffective = Boolean(
+            data.useBackups && hasBackupProductIds
+          );
+
+          if (data.useBackups && !useBackupsEffective) {
+            logger.info("Backup mode requested without backup mappings", {
+              action: "skip_backup_flow",
+              hasBackupProductIds,
+              rawBackupProducts: data.backupProducts,
+            });
+          }
 
           // Validate required parameters
           const missingParams = [];
@@ -1012,7 +1053,7 @@ export const generateLinkHttp = onRequest(
               data.instacartRetailer,
               data.shoppingListData,
               data.recipeData,
-              data.useBackups,
+              useBackupsEffective,
               allowPdpRequest
             );
 
@@ -1178,10 +1219,6 @@ export const generateLinkHttp = onRequest(
 
           documentData.shortId = shortenResult.shortId;
 
-          const normalizedBackupProducts = normalizeBackupProducts(
-            data.backupProducts
-          );
-
           const fallbackUrl =
             data.customUrl || data.redirectUrl || data.fallbackUrl;
           if (fallbackUrl) {
@@ -1214,16 +1251,12 @@ export const generateLinkHttp = onRequest(
             documentData.siteRetailer = data.instacartRetailer || "";
           }
 
-          if (normalizedBackupProducts) {
-            documentData.useBackups = true;
+          documentData.useBackups = Boolean(data.useBackups);
+
+          if (useBackupsEffective && normalizedBackupProducts) {
             documentData.backupProducts = normalizedBackupProducts;
-          } else {
-            if (data.useBackups) {
-              documentData.useBackups = data.useBackups;
-            }
-            if (data.backupProducts) {
-              documentData.legacyBackupProducts = data.backupProducts;
-            }
+          } else if (data.backupProducts) {
+            documentData.legacyBackupProducts = data.backupProducts;
           }
 
           const isWalmartAddToCart =
