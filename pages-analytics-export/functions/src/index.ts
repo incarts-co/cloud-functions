@@ -294,9 +294,15 @@ function validateProjectId(projectId: string): boolean {
 async function generateFullReport(projectId: string, startDate: string, endDate: string, pageSlug: string): Promise<any> {
   const params = {
     project_id: projectId,
-    start_date: startDate,
-    end_date: endDate,
+    start_date: bigquery.date(startDate),
+    end_date: bigquery.date(endDate),
     page_slug: pageSlug || null,
+  };
+  const types = {
+    project_id: "STRING",
+    start_date: "DATE",
+    end_date: "DATE",
+    page_slug: "STRING",
   };
 
   // Execute all queries in parallel using our clean views
@@ -310,14 +316,14 @@ async function generateFullReport(projectId: string, startDate: string, endDate:
     topCities,
     topTrafficSources,
   ] = await Promise.all([
-    bigquery.query({ query: QUERIES.general, params }),
-    bigquery.query({ query: QUERIES.pageviews_by_date, params }),
-    bigquery.query({ query: QUERIES.clicks_by_date, params }),
-    bigquery.query({ query: QUERIES.interactions, params }),
-    bigquery.query({ query: QUERIES.clicks_by_url, params }),
-    bigquery.query({ query: QUERIES.pageviews_by_device, params }),
-    bigquery.query({ query: QUERIES.top_cities, params }),
-    bigquery.query({ query: QUERIES.top_traffic_sources, params }),
+    bigquery.query({ query: QUERIES.general, params, types }),
+    bigquery.query({ query: QUERIES.pageviews_by_date, params, types }),
+    bigquery.query({ query: QUERIES.clicks_by_date, params, types }),
+    bigquery.query({ query: QUERIES.interactions, params, types }),
+    bigquery.query({ query: QUERIES.clicks_by_url, params, types }),
+    bigquery.query({ query: QUERIES.pageviews_by_device, params, types }),
+    bigquery.query({ query: QUERIES.top_cities, params, types }),
+    bigquery.query({ query: QUERIES.top_traffic_sources, params, types }),
   ]);
 
   return {
@@ -502,14 +508,22 @@ export const exportAnalytics = onRequest(async (req, res): Promise<void> => {
     }
 
     const query = QUERIES[type as string];
+    const params = {
+      project_id: project_id as string,
+      start_date: bigquery.date(start_date as string),
+      end_date: bigquery.date(end_date as string),
+      page_slug: page_slug ? page_slug as string : null,
+    };
+    const types = {
+      project_id: "STRING",
+      start_date: "DATE",
+      end_date: "DATE",
+      page_slug: "STRING",
+    };
     const options = {
       query: query,
-      params: {
-        project_id: project_id as string,
-        start_date: start_date as string,
-        end_date: end_date as string,
-        page_slug: page_slug ? page_slug as string : null,
-      },
+      params,
+      types,
       // Add query timeout
       timeoutMs: 30000, // 30 seconds
     };

@@ -1,5 +1,8 @@
 /**
- * Link Generation Cloud Function
+ * @fileoverview Link Generation Cloud Function for creating shoppable links with URL shortening and QR code generation
+ * @description This Cloud Function handles the generation of various types of shoppable links including custom URLs,
+ * product links for different retailers (Walmart, Instacart, Amazon, Kroger), and shoppable page links.
+ * It integrates with URL shortening services, QR code generation, and Firestore for persistence.
  *
  * Version History:
  * v1.0.5 (Jul-29-2025) - SECURITY FIX: Replace remaining hardcoded API keys with environment variables for shopping lists and recipes
@@ -8,18 +11,45 @@
  * v1.0.2 (Apr-29-2025) - Add backup products feature
  * v1.0.1 (Mar-11-2025) - Add rrd.incarts.co to CORs allowed origins
  *
- * This function handles the generation of various types of shoppable links:
- * - Custom URL links
- * - Product links (for different retailers)
- * - Shoppable page links
+ * @module cloud-functions/generate-link-http
  *
- * It replaces the client-side link generation logic in the Flutter application.
+ * @example
+ * // Generate a Walmart product link with backups
+ * const response = await fetch('https://us-central1-incarts.cloudfunctions.net/generateLinkHttp', {
+ *   method: 'POST',
+ *   headers: { 'Content-Type': 'application/json' },
+ *   body: JSON.stringify({
+ *     linkType: '2',
+ *     linkName: 'My Product Link',
+ *     selectedWebsite: 'Walmart.com',
+ *     selectedAction: 'Add Items to Cart',
+ *     selectedProducts: ['123456789'],
+ *     projectId: 'proj123',
+ *     projectName: 'Campaign',
+ *     userId: 'user456',
+ *     useBackups: true,
+ *     backupProducts: [{ primaryId: '123456789', backupIds: ['111111111'] }]
+ *   })
+ * });
+ *
+ * @related
+ * - URL Shortener Service: https://incarts-url-shortener-qob6vapoca-uc.a.run.app/shorten
+ * - QR Code Generator: https://us-central1-incarts.cloudfunctions.net/generateQRCode
+ * - Firestore Collections: links, newDynamicPages, projects, users
+ *
+ * Link Types:
+ * - linkType "1": Custom URL links (retailerStep 1=retailer selection, 2=custom link)
+ * - linkType "2": Product links (supports Walmart, Instacart, Amazon, Kroger)
+ * - linkType "3": Shoppable page links
  *
  * Backup Products Feature:
  * - useBackups: Boolean flag indicating backup products are enabled
- * - backupProducts: JSON string containing an array of objects with structure:
- *   { primaryId: string, backupIds: string[] }
+ * - backupProducts: JSON string or array containing backup configurations with structure:
+ *   { primaryId: string, backupIds: string[], quantity?: number }
  * - When a primary product is out of stock, the system will try backup products in order
+ *
+ * Swagger Documentation:
+ * See swagger.json in the functions directory for complete API documentation
  */
 
 import { onRequest } from "firebase-functions/v2/https";
@@ -573,6 +603,53 @@ async function shortenUrl(
  * Generate a QR code for a URL
  */
 /**
+ * Sanitize line items by removing empty or invalid filter arrays
+ */
+function sanitizeLineItems(lineItems: any[]): any[] {
+  return lineItems.map(item => {
+    const sanitized = { ...item };
+
+    // Remove filters object if it exists and clean it up
+    if (sanitized.filters) {
+      const filters = { ...sanitized.filters };
+
+      // Remove brand_filters if empty or contains invalid values
+      if (filters.brand_filters) {
+        const validBrands = filters.brand_filters.filter(
+          (brand: any) => brand && typeof brand === 'string' && brand.trim().length > 0
+        );
+        if (validBrands.length === 0) {
+          delete filters.brand_filters;
+        } else {
+          filters.brand_filters = validBrands;
+        }
+      }
+
+      // Remove health_filters if empty
+      if (filters.health_filters) {
+        const validHealthFilters = filters.health_filters.filter(
+          (filter: any) => filter && typeof filter === 'string' && filter.trim().length > 0
+        );
+        if (validHealthFilters.length === 0) {
+          delete filters.health_filters;
+        } else {
+          filters.health_filters = validHealthFilters;
+        }
+      }
+
+      // Remove filters object entirely if it's now empty
+      if (Object.keys(filters).length === 0) {
+        delete sanitized.filters;
+      } else {
+        sanitized.filters = filters;
+      }
+    }
+
+    return sanitized;
+  });
+}
+
+/**
  * Create an Instacart shopping list and return the products link URL
  */
 async function createInstacartShoppingList(data: {
@@ -582,11 +659,14 @@ async function createInstacartShoppingList(data: {
   lineItems: any[];
 }, retailer?: string): Promise<string> {
   try {
+    // Sanitize line items before sending to Instacart
+    const sanitizedLineItems = sanitizeLineItems(data.lineItems);
+
     const requestBody: any = {
       title: data.title,
       image_url: data.imageUrl,
       link_type: "shopping_list",
-      line_items: data.lineItems,
+      line_items: sanitizedLineItems,
       landing_page_configuration: {
         partner_linkback_url: "beta.incarts.co",
         enable_pantry_items: true,
@@ -594,9 +674,14 @@ async function createInstacartShoppingList(data: {
     };
 
     // Only add instructions if provided
-    if (data.instructions) {
+    if (data.instructions && data.instructions.trim().length > 0) {
       requestBody.instructions = [data.instructions];
     }
+
+    logger.info("Sending request to Instacart shopping list API", {
+      lineItemCount: sanitizedLineItems.length,
+      sanitizedLineItems: JSON.stringify(sanitizedLineItems),
+    });
 
     // live instacart url
     // https://connect.instacart.com/idp/v1/products/products_link
@@ -628,11 +713,64 @@ async function createInstacartShoppingList(data: {
 
     return shoppingListUrl;
   } catch (error: any) {
-    logger.error("Error creating Instacart shopping list:", error);
+    logger.error("Error creating Instacart shopping list:", {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      requestData: error.config?.data,
+    });
     throw new Error(
       `Failed to create Instacart shopping list: ${error.message}`
     );
   }
+}
+
+/**
+ * Sanitize recipe ingredients by removing empty or invalid filter arrays
+ */
+function sanitizeIngredients(ingredients: any[]): any[] {
+  return ingredients.map(ingredient => {
+    const sanitized = { ...ingredient };
+
+    // Remove filters object if it exists and clean it up
+    if (sanitized.filters) {
+      const filters = { ...sanitized.filters };
+
+      // Remove brand_filters if empty or contains invalid values
+      if (filters.brand_filters) {
+        const validBrands = filters.brand_filters.filter(
+          (brand: any) => brand && typeof brand === 'string' && brand.trim().length > 0
+        );
+        if (validBrands.length === 0) {
+          delete filters.brand_filters;
+        } else {
+          filters.brand_filters = validBrands;
+        }
+      }
+
+      // Remove health_filters if empty
+      if (filters.health_filters) {
+        const validHealthFilters = filters.health_filters.filter(
+          (filter: any) => filter && typeof filter === 'string' && filter.trim().length > 0
+        );
+        if (validHealthFilters.length === 0) {
+          delete filters.health_filters;
+        } else {
+          filters.health_filters = validHealthFilters;
+        }
+      }
+
+      // Remove filters object entirely if it's now empty
+      if (Object.keys(filters).length === 0) {
+        delete sanitized.filters;
+      } else {
+        sanitized.filters = filters;
+      }
+    }
+
+    return sanitized;
+  });
 }
 
 /**
@@ -652,10 +790,13 @@ async function createInstacartRecipe(
   retailer?: string
 ): Promise<string> {
   try {
+    // Sanitize ingredients before sending to Instacart
+    const sanitizedIngredients = sanitizeIngredients(recipeData.ingredients);
+
     const requestBody: any = {
       title: recipeData.title,
       link_type: "recipe",
-      ingredients: recipeData.ingredients,
+      ingredients: sanitizedIngredients,
       landing_page_configuration: {
         partner_linkback_url: "beta.incarts.co",
         enable_pantry_items: true,
@@ -706,7 +847,13 @@ async function createInstacartRecipe(
 
     return recipeUrl;
   } catch (error: any) {
-    logger.error("Error creating Instacart recipe:", error);
+    logger.error("Error creating Instacart recipe:", {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      requestData: error.config?.data,
+    });
     throw new Error(
       `Failed to create Instacart recipe: ${error.message}`
     );
@@ -866,7 +1013,106 @@ async function generateLinkUrl(
 }
 
 /**
- * Main function handler for link generation
+ * Main HTTP Cloud Function handler for link generation
+ *
+ * @function generateLinkHttp
+ * @description Generates shoppable links with URL shortening, QR code generation, and Firestore persistence.
+ * Supports three types of links: custom URLs, product links (Walmart, Instacart, Amazon, Kroger), and shoppable pages.
+ * Includes CORS support for multiple origins and comprehensive error handling.
+ *
+ * @param {Object} request - HTTP request object from Firebase Functions
+ * @param {GenerateLinkRequest} request.body - Request body containing link generation parameters
+ * @param {Object} response - HTTP response object from Firebase Functions
+ *
+ * @returns {Promise<void>} Resolves when the response has been sent
+ *
+ * @example
+ * // Custom URL Link (linkType "1")
+ * POST /generateLinkHttp
+ * {
+ *   "linkType": "1",
+ *   "retailerStep": 2,
+ *   "linkName": "Summer Sale",
+ *   "originalUrl": "https://example.com/sale",
+ *   "projectId": "proj123",
+ *   "projectName": "Campaign",
+ *   "userId": "user456"
+ * }
+ *
+ * @example
+ * // Walmart Add to Cart (linkType "2")
+ * POST /generateLinkHttp
+ * {
+ *   "linkType": "2",
+ *   "linkName": "Grocery Cart",
+ *   "selectedWebsite": "Walmart.com",
+ *   "selectedAction": "Add Items to Cart",
+ *   "selectedProducts": ["123456789", "987654321"],
+ *   "projectId": "proj123",
+ *   "projectName": "Campaign",
+ *   "userId": "user456",
+ *   "walmartAllowPdp": true,
+ *   "useBackups": true,
+ *   "backupProducts": [
+ *     { "primaryId": "123456789", "backupIds": ["111111111", "222222222"] }
+ *   ]
+ * }
+ *
+ * @example
+ * // Instacart Shopping List (linkType "2")
+ * POST /generateLinkHttp
+ * {
+ *   "linkType": "2",
+ *   "linkName": "Recipe List",
+ *   "selectedWebsite": "Instacart.com",
+ *   "selectedAction": "Shopping List",
+ *   "instacartRetailer": "costco",
+ *   "shoppingListData": {
+ *     "title": "Weekly Groceries",
+ *     "imageUrl": "https://example.com/image.jpg",
+ *     "lineItems": [
+ *       {
+ *         "name": "Milk",
+ *         "measurements": [{ "quantity": 1, "unit": "gallon" }]
+ *       }
+ *     ]
+ *   },
+ *   "projectId": "proj123",
+ *   "projectName": "Campaign",
+ *   "userId": "user456"
+ * }
+ *
+ * @example
+ * // Shoppable Page Link (linkType "3")
+ * POST /generateLinkHttp
+ * {
+ *   "linkType": "3",
+ *   "linkName": "Product Page",
+ *   "shoppablePageId": "page789",
+ *   "projectId": "proj123",
+ *   "projectName": "Campaign",
+ *   "userId": "user456"
+ * }
+ *
+ * @throws {400} Missing required parameters or invalid configuration
+ * @throws {404} Shoppable page not found (for linkType "3")
+ * @throws {500} Internal server error (URL shortening, QR generation, or Firestore failures)
+ *
+ * Response Format:
+ * Success (200):
+ * {
+ *   "success": true,
+ *   "shortLink": "https://in2c.art/abc123",
+ *   "shortId": "abc123",
+ *   "qrCodeUrl": "https://storage.googleapis.com/.../qrcodes/abc123.png",
+ *   "linkDocId": "AbCdEfGhIjKlMnOpQrSt"
+ * }
+ *
+ * Error (400/404/500):
+ * {
+ *   "success": false,
+ *   "error": "Error message describing what went wrong"
+ * }
  */
 export const generateLinkHttp = onRequest(
   {
