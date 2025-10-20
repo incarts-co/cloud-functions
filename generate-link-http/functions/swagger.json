@@ -1,0 +1,737 @@
+{
+  "openapi": "3.2.0",
+  "info": {
+    "title": "Generate Link HTTP API",
+    "description": "Cloud Function for generating various types of shoppable links including custom URLs, product links, and shoppable page links. This function handles link shortening, QR code generation, and Firestore document creation.",
+    "version": "1.0.5",
+    "contact": {
+      "name": "Incarts API Support"
+    },
+    "license": {
+      "name": "Proprietary",
+      "identifier": "LicenseRef-Proprietary"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://us-central1-incarts.cloudfunctions.net",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/generateLinkHttp": {
+      "post": {
+        "summary": "Generate a shoppable link",
+        "description": "Generates different types of shoppable links (custom URL, product links, or shoppable pages) with automatic URL shortening and QR code generation.",
+        "operationId": "generateLink",
+        "tags": ["Link Generation"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateLinkRequest"
+              },
+              "examples": {
+                "customLink": {
+                  "summary": "Custom URL Link",
+                  "value": {
+                    "linkType": "1",
+                    "retailerStep": 2,
+                    "linkName": "My Custom Link",
+                    "publicLinkName": "Summer Sale",
+                    "originalUrl": "https://example.com/products",
+                    "projectId": "proj123",
+                    "projectName": "Summer Campaign",
+                    "userId": "user456",
+                    "linkTags": ["summer", "sale"],
+                    "linkValue": 100
+                  }
+                },
+                "walmartProductLink": {
+                  "summary": "Walmart Add to Cart",
+                  "value": {
+                    "linkType": "2",
+                    "linkName": "Walmart Cart Link",
+                    "selectedWebsite": "Walmart.com",
+                    "selectedAction": "Add Items to Cart",
+                    "selectedProducts": ["123456789", "987654321"],
+                    "projectId": "proj123",
+                    "projectName": "Grocery Campaign",
+                    "userId": "user456",
+                    "walmartAllowPdp": true,
+                    "useBackups": true,
+                    "backupProducts": [
+                      {
+                        "primaryId": "123456789",
+                        "backupIds": ["111111111", "222222222"]
+                      }
+                    ]
+                  }
+                },
+                "instacartShoppingList": {
+                  "summary": "Instacart Shopping List",
+                  "value": {
+                    "linkType": "2",
+                    "linkName": "Recipe Shopping List",
+                    "selectedWebsite": "Instacart.com",
+                    "selectedAction": "Shopping List",
+                    "instacartRetailer": "costco",
+                    "shoppingListData": {
+                      "title": "Weekly Groceries",
+                      "imageUrl": "https://example.com/image.jpg",
+                      "instructions": "Get these items for the recipe",
+                      "lineItems": [
+                        {
+                          "name": "Milk",
+                          "display_text": "Whole Milk",
+                          "measurements": [
+                            {
+                              "quantity": 1,
+                              "unit": "gallon"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "projectId": "proj123",
+                    "projectName": "Recipe Campaign",
+                    "userId": "user456"
+                  }
+                },
+                "shoppablePage": {
+                  "summary": "Shoppable Page Link",
+                  "value": {
+                    "linkType": "3",
+                    "linkName": "Product Page Link",
+                    "shoppablePageId": "page789",
+                    "projectId": "proj123",
+                    "projectName": "Landing Page Campaign",
+                    "userId": "user456"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Link generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                },
+                "example": {
+                  "success": true,
+                  "shortLink": "https://in2c.art/abc123",
+                  "shortId": "abc123",
+                  "qrCodeUrl": "https://storage.googleapis.com/incarts.appspot.com/qrcodes/abc123.png",
+                  "linkDocId": "AbCdEfGhIjKlMnOpQrSt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing or invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingParams": {
+                    "summary": "Missing required parameters",
+                    "value": {
+                      "success": false,
+                      "error": "Missing required parameters: linkType, projectId"
+                    }
+                  },
+                  "invalidLinkType": {
+                    "summary": "Invalid link type configuration",
+                    "value": {
+                      "success": false,
+                      "error": "Website and action are required for product links"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Shoppable page with ID page789 not found."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Failed to shorten URL: Connection timeout"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "summary": "CORS preflight",
+        "description": "Handles CORS preflight requests",
+        "operationId": "corsPreflight",
+        "tags": ["CORS"],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "CORS preflight successful"
+          },
+          "403": {
+            "description": "CORS policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenerateLinkRequest": {
+        "type": "object",
+        "required": ["linkType", "linkName", "projectId", "projectName", "userId"],
+        "properties": {
+          "linkType": {
+            "type": "string",
+            "enum": ["1", "2", "3"],
+            "description": "Type of link to generate: 1=Custom URL, 2=Product Link, 3=Shoppable Page"
+          },
+          "linkName": {
+            "type": "string",
+            "description": "Private name for the link (for internal tracking)"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Project identifier"
+          },
+          "projectName": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "userId": {
+            "type": "string",
+            "description": "User identifier for document creation"
+          },
+          "publicLinkName": {
+            "type": "string",
+            "description": "Optional public display name for the link"
+          },
+          "linkValue": {
+            "type": "number",
+            "description": "Optional value for analytics (defaults to 0)",
+            "default": 0
+          },
+          "linkTags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags associated with the link"
+          },
+          "utmParameters": {
+            "type": "object",
+            "description": "UTM tracking parameters",
+            "additionalProperties": true
+          },
+          "retailerStep": {
+            "type": "integer",
+            "enum": [1, 2],
+            "description": "For linkType '1': 1=retailer selection, 2=custom link"
+          },
+          "originalUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Original URL for custom links (required for linkType '1')"
+          },
+          "customUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Optional custom URL to save directly to the links document"
+          },
+          "selectedWebsite": {
+            "type": "string",
+            "enum": ["Walmart.com", "Instacart.com", "Amazon.com", "Kroger.com"],
+            "description": "Selected website name (required for linkType '2')"
+          },
+          "selectedAction": {
+            "type": "string",
+            "enum": ["Item Page", "Add Items to Cart", "Shopping List", "Recipe"],
+            "description": "Action type (required for linkType '2')"
+          },
+          "selectedRetailer": {
+            "type": "string",
+            "description": "Selected retailer name"
+          },
+          "instacartRetailer": {
+            "type": "string",
+            "description": "Optional Instacart retailer slug (e.g., 'costco', 'walmart')"
+          },
+          "selectedProducts": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Product ID as string"
+                },
+                {
+                  "type": "object",
+                  "description": "Product with backup configuration",
+                  "properties": {
+                    "primaryId": {
+                      "type": "string"
+                    },
+                    "backupIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "quantity": {
+                      "type": "number"
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "Array of retailer product IDs or product objects"
+          },
+          "shoppingListData": {
+            "$ref": "#/components/schemas/ShoppingListData"
+          },
+          "recipeData": {
+            "$ref": "#/components/schemas/RecipeData"
+          },
+          "shoppablePageId": {
+            "type": "string",
+            "description": "ID of selected shoppable page (required for linkType '3')"
+          },
+          "useBackups": {
+            "type": "boolean",
+            "description": "Flag indicating if backup products are enabled"
+          },
+          "backupProducts": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "JSON string of backup configurations"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/BackupProduct"
+                }
+              }
+            ],
+            "description": "Backup product configurations"
+          },
+          "defaultQRIdentifier": {
+            "type": "string",
+            "description": "Custom identifier for the default QR code"
+          },
+          "defaultQRName": {
+            "type": "string",
+            "description": "Custom display name for the default QR code"
+          },
+          "walmartAllowPdp": {
+            "type": "boolean",
+            "description": "Enable Walmart PDP fulfillment for single-item carts"
+          },
+          "walmartCartMode": {
+            "type": "string",
+            "enum": ["auto", "offer", "items"],
+            "description": "Preferred Walmart cart mode"
+          },
+          "allowPdp": {
+            "type": "boolean",
+            "description": "Explicit allow PDP flag"
+          },
+          "allow_pdp": {
+            "type": "boolean",
+            "description": "Legacy allow PDP flag"
+          },
+          "fallbackUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Optional fallback URL"
+          },
+          "redirectUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Optional redirect URL"
+          },
+          "cartUrlOptions": {
+            "$ref": "#/components/schemas/CartUrlOptions"
+          },
+          "cartOptions": {
+            "$ref": "#/components/schemas/CartUrlOptions"
+          },
+          "cartDefaults": {
+            "$ref": "#/components/schemas/CartUrlOptions"
+          },
+          "cartUrlConfig": {
+            "$ref": "#/components/schemas/CartUrlOptions"
+          },
+          "storeId": {
+            "type": "string",
+            "description": "Preferred store identifier"
+          },
+          "defaultStoreId": {
+            "type": "string",
+            "description": "Default store identifier"
+          },
+          "preferredStoreId": {
+            "type": "string",
+            "description": "Preferred store identifier alias"
+          },
+          "smartCart": {
+            "$ref": "#/components/schemas/SmartCart"
+          }
+        }
+      },
+      "ShoppingListData": {
+        "type": "object",
+        "required": ["title", "imageUrl", "lineItems"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Shopping list title"
+          },
+          "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Shopping list image URL"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Optional instructions for the shopping list"
+          },
+          "lineItems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineItem"
+            },
+            "minItems": 1,
+            "description": "List of items in the shopping list"
+          }
+        }
+      },
+      "LineItem": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Item name"
+          },
+          "display_text": {
+            "type": "string",
+            "description": "Display text for the item"
+          },
+          "upcs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "UPC codes for the item"
+          },
+          "measurements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Measurement"
+            },
+            "description": "Measurements for the item"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/Filters"
+          }
+        }
+      },
+      "Measurement": {
+        "type": "object",
+        "properties": {
+          "quantity": {
+            "type": "number",
+            "description": "Quantity of the item"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Unit of measurement (e.g., 'cup', 'gallon', 'oz')"
+          }
+        }
+      },
+      "Filters": {
+        "type": "object",
+        "properties": {
+          "brand_filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Brand filter preferences"
+          },
+          "health_filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Health filter preferences (e.g., 'organic', 'gluten-free')"
+          }
+        }
+      },
+      "RecipeData": {
+        "type": "object",
+        "required": ["title", "ingredients"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Recipe title"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Recipe image URL"
+          },
+          "author": {
+            "type": "string",
+            "description": "Recipe author"
+          },
+          "servings": {
+            "type": "integer",
+            "description": "Number of servings"
+          },
+          "cooking_time": {
+            "type": "integer",
+            "description": "Cooking time in minutes"
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Cooking instructions"
+          },
+          "ingredients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ingredient"
+            },
+            "minItems": 1,
+            "description": "Recipe ingredients"
+          },
+          "landing_page_configuration": {
+            "type": "object",
+            "properties": {
+              "partner_linkback_url": {
+                "type": "string",
+                "description": "Partner linkback URL"
+              },
+              "enable_pantry_items": {
+                "type": "boolean",
+                "description": "Enable pantry items"
+              }
+            }
+          }
+        }
+      },
+      "Ingredient": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Ingredient name"
+          },
+          "display_text": {
+            "type": "string",
+            "description": "Display text for the ingredient"
+          },
+          "upcs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "UPC codes"
+          },
+          "measurements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Measurement"
+            },
+            "description": "Ingredient measurements"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/Filters"
+          }
+        }
+      },
+      "BackupProduct": {
+        "type": "object",
+        "required": ["primaryId", "backupIds"],
+        "properties": {
+          "primaryId": {
+            "type": "string",
+            "description": "Primary product ID"
+          },
+          "backupIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of backup product IDs (tried in order)"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Optional quantity for the product"
+          }
+        }
+      },
+      "CartUrlOptions": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["auto", "offer", "items"],
+            "description": "Cart URL mode",
+            "default": "auto"
+          },
+          "fallbackMode": {
+            "type": "string",
+            "enum": ["offer", "items"],
+            "description": "Fallback mode if primary mode fails",
+            "default": "items"
+          },
+          "includeStoreId": {
+            "type": "string",
+            "enum": ["auto", "always", "never"],
+            "description": "Whether to include store ID in URL",
+            "default": "auto"
+          },
+          "preferItemsForWalmart": {
+            "type": "boolean",
+            "description": "Prefer items parameter for Walmart URLs",
+            "default": true
+          },
+          "preferOffersForMarketplace": {
+            "type": "boolean",
+            "description": "Prefer offers for marketplace items",
+            "default": false
+          }
+        }
+      },
+      "SmartCart": {
+        "type": "object",
+        "properties": {
+          "cartUrlOptions": {
+            "$ref": "#/components/schemas/CartUrlOptions"
+          },
+          "cartOptions": {
+            "$ref": "#/components/schemas/CartUrlOptions"
+          },
+          "storeId": {
+            "type": "string",
+            "description": "Store identifier"
+          },
+          "defaultStoreId": {
+            "type": "string",
+            "description": "Default store identifier"
+          },
+          "preferredStoreId": {
+            "type": "string",
+            "description": "Preferred store identifier"
+          }
+        },
+        "additionalProperties": true
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "required": ["success", "shortLink", "shortId", "qrCodeUrl", "linkDocId"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [true],
+            "description": "Indicates successful link generation"
+          },
+          "shortLink": {
+            "type": "string",
+            "format": "uri",
+            "description": "Shortened URL (e.g., https://in2c.art/abc123)",
+            "example": "https://in2c.art/abc123"
+          },
+          "shortId": {
+            "type": "string",
+            "description": "Short ID for the URL",
+            "example": "abc123"
+          },
+          "qrCodeUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to the generated QR code image",
+            "example": "https://storage.googleapis.com/incarts.appspot.com/qrcodes/abc123.png"
+          },
+          "linkDocId": {
+            "type": "string",
+            "description": "ID of the created Firestore document (20 characters)",
+            "minLength": 20,
+            "maxLength": 20,
+            "example": "AbCdEfGhIjKlMnOpQrSt"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["success", "error"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [false],
+            "description": "Indicates failed link generation"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message describing what went wrong",
+            "example": "Missing required parameters: linkType, projectId"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Link Generation",
+      "description": "Operations for generating shoppable links"
+    },
+    {
+      "name": "CORS",
+      "description": "CORS preflight operations"
+    }
+  ]
+}

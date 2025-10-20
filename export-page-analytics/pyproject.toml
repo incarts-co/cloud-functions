@@ -1,0 +1,21 @@
+[project]
+name = "export-page-analytics"
+version = "1.0.0"
+description = "Cloud Function to export page analytics to Excel spreadsheet"
+requires-python = ">=3.13"
+dependencies = [
+    "firebase-functions~=0.1.0",
+    "google-cloud-bigquery==3.38.0",
+    "openpyxl==3.1.5",
+    "functions-framework==3.9.2",
+    "flask==3.1.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
+
+[tool.uv.sources]
