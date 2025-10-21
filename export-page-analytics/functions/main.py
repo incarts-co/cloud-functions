@@ -149,18 +149,38 @@ def export_page_analytics(request: https_fn.Request) -> https_fn.Response:
 def get_summary_metrics(client, where_clause):
     """Get overall summary metrics"""
     query = f"""
-    SELECT 
-      COUNT(DISTINCT page_slug) as total_pages,
-      COUNT(DISTINCT project_id) as total_projects,
-      SUM(total_page_views) as total_page_views,
-      SUM(total_users) as total_users,
-      SUM(total_sessions) as total_sessions,
-      SUM(total_clicks) as total_clicks,
-      ROUND(AVG(avg_session_duration_seconds), 2) as avg_session_duration,
-      ROUND(AVG(bounce_rate_pct), 2) as avg_bounce_rate,
-      ROUND(SAFE_DIVIDE(SUM(total_clicks), SUM(total_page_views)) * 100, 2) as overall_ctr
-    FROM `incarts.analytics.dashboard_summary_with_traffic_pages_v4`
-    WHERE {where_clause}
+    SELECT
+      total_pages,
+      total_projects,
+      total_page_views,
+      total_users,
+      total_sessions,
+      total_clicks,
+      ROUND(
+        SAFE_DIVIDE(weighted_session_duration, NULLIF(total_sessions, 0)),
+        2
+      ) AS avg_session_duration,
+      ROUND(
+        SAFE_DIVIDE(weighted_bounce_rate, NULLIF(total_sessions, 0)),
+        2
+      ) AS avg_bounce_rate,
+      ROUND(
+        SAFE_DIVIDE(total_clicks, NULLIF(total_page_views, 0)) * 100,
+        2
+      ) AS overall_ctr
+    FROM (
+      SELECT 
+        COUNT(DISTINCT page_slug) AS total_pages,
+        COUNT(DISTINCT project_id) AS total_projects,
+        SUM(total_page_views) AS total_page_views,
+        SUM(total_users) AS total_users,
+        SUM(total_sessions) AS total_sessions,
+        SUM(total_clicks) AS total_clicks,
+        SUM(COALESCE(avg_session_duration_seconds, 0) * total_sessions) AS weighted_session_duration,
+        SUM(COALESCE(bounce_rate_pct, 0) * total_sessions) AS weighted_bounce_rate
+      FROM `incarts.analytics.dashboard_summary_with_traffic_pages_v4`
+      WHERE {where_clause}
+    )
     """
     return list(client.query(query).result())[0]
 

@@ -135,7 +135,10 @@ firebase deploy --only functions
 ### Example Request
 
 ```bash
-curl "https://your-function-url/export_page_analytics?start_date=2025-01-01&end_date=2025-12-31&project_id=my-project"
+# Download an Excel export covering January 2025 to the current folder
+curl \
+  "https://us-central1-incarts.cloudfunctions.net/export_page_analytics?start_date=2025-01-01&end_date=2025-01-31&project_id=my-project" \
+  --output page-analytics-2025-01.xlsx
 ```
 
 ## Excel Output
