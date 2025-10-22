@@ -667,10 +667,11 @@ async function createInstacartShoppingList(data: {
       image_url: data.imageUrl,
       link_type: "shopping_list",
       line_items: sanitizedLineItems,
-      landing_page_configuration: {
-        partner_linkback_url: "beta.incarts.co",
-        enable_pantry_items: true,
-      },
+      // landing_page_configuration temporarily disabled
+      // landing_page_configuration: {
+      //   partner_linkback_url: "beta.incarts.co",
+      //   enable_pantry_items: true,
+      // },
     };
 
     // Only add instructions if provided
@@ -797,11 +798,12 @@ async function createInstacartRecipe(
       title: recipeData.title,
       link_type: "recipe",
       ingredients: sanitizedIngredients,
-      landing_page_configuration: {
-        partner_linkback_url: "beta.incarts.co",
-        enable_pantry_items: true,
-        ...recipeData.landing_page_configuration,
-      },
+      // landing_page_configuration temporarily disabled
+      // landing_page_configuration: {
+      //   partner_linkback_url: "beta.incarts.co",
+      //   enable_pantry_items: true,
+      //   ...recipeData.landing_page_configuration,
+      // },
     };
 
     // Add optional fields if they exist
