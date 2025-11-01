@@ -1,7 +1,7 @@
 /**
  * @fileoverview Link Generation Cloud Function for creating shoppable links with URL shortening and QR code generation
  * @description This Cloud Function handles the generation of various types of shoppable links including custom URLs,
- * product links for different retailers (Walmart, Instacart, Amazon, Kroger), and shoppable page links.
+ * product links for different retailers (Walmart, Instacart, Amazon, Kroger, Target), and shoppable page links.
  * It integrates with URL shortening services, QR code generation, and Firestore for persistence.
  *
  * Version History:
@@ -39,7 +39,7 @@
  *
  * Link Types:
  * - linkType "1": Custom URL links (retailerStep 1=retailer selection, 2=custom link)
- * - linkType "2": Product links (supports Walmart, Instacart, Amazon, Kroger)
+ * - linkType "2": Product links (supports Walmart, Instacart, Amazon, Kroger, Target)
  * - linkType "3": Shoppable page links
  *
  * Backup Products Feature:
@@ -654,7 +654,7 @@ function sanitizeLineItems(lineItems: any[]): any[] {
  */
 async function createInstacartShoppingList(data: {
   title: string;
-  imageUrl: string;
+  imageUrl?: string;
   instructions?: string;
   lineItems: any[];
 }, retailer?: string): Promise<string> {
@@ -664,7 +664,6 @@ async function createInstacartShoppingList(data: {
 
     const requestBody: any = {
       title: data.title,
-      image_url: data.imageUrl,
       link_type: "shopping_list",
       line_items: sanitizedLineItems,
       // landing_page_configuration temporarily disabled
@@ -673,6 +672,11 @@ async function createInstacartShoppingList(data: {
       //   enable_pantry_items: true,
       // },
     };
+
+    // Only add imageUrl if provided
+    if (data.imageUrl && data.imageUrl.trim().length > 0) {
+      requestBody.image_url = data.imageUrl;
+    }
 
     // Only add instructions if provided
     if (data.instructions && data.instructions.trim().length > 0) {
@@ -910,7 +914,7 @@ async function generateLinkUrl(
   instacartRetailer?: string,
   shoppingListData?: {
     title: string;
-    imageUrl: string;
+    imageUrl?: string;
     instructions?: string;
     lineItems: any[];
   },
@@ -1009,6 +1013,18 @@ async function generateLinkUrl(
   } else if (selectedWebsite === "Kroger.com") {
     // Generate Kroger URL
     return `https://www.kroger.com/p/-/${selectedProducts[0]}`;
+  } else if (selectedWebsite === "Target.com") {
+    // Generate Target URL for item page
+    // Handle both regular products and backup products structure
+    const productId = primaryProductIds[0];
+
+    if (!productId) {
+      logger.warn("Missing primary product ID for Target item page", {
+        selectedProducts,
+      });
+      return "";
+    }
+    return `https://www.target.com/p/-/A-${productId}`;
   }
 
   return "";
@@ -1019,7 +1035,7 @@ async function generateLinkUrl(
  *
  * @function generateLinkHttp
  * @description Generates shoppable links with URL shortening, QR code generation, and Firestore persistence.
- * Supports three types of links: custom URLs, product links (Walmart, Instacart, Amazon, Kroger), and shoppable pages.
+ * Supports three types of links: custom URLs, product links (Walmart, Instacart, Amazon, Kroger, Target), and shoppable pages.
  * Includes CORS support for multiple origins and comprehensive error handling.
  *
  * @param {Object} request - HTTP request object from Firebase Functions
@@ -1247,10 +1263,9 @@ export const generateLinkHttp = onRequest(
                 return;
               }
 
-              const { title, imageUrl, lineItems } = data.shoppingListData;
+              const { title, lineItems } = data.shoppingListData;
               if (
                 !title ||
-                !imageUrl ||
                 !lineItems ||
                 !Array.isArray(lineItems) ||
                 lineItems.length === 0
@@ -1258,7 +1273,7 @@ export const generateLinkHttp = onRequest(
                 response.status(400).json({
                   success: false,
                   error:
-                    "Invalid shopping list data: title, imageUrl, and lineItems are required",
+                    "Invalid shopping list data: title and lineItems are required",
                 });
                 return;
               }
@@ -1491,6 +1506,9 @@ export const generateLinkHttp = onRequest(
                 break;
               case "Instacart.com":
                 defaultRetailer = "Instacart";
+                break;
+              case "Target.com":
+                defaultRetailer = "Target";
                 break;
             }
 
