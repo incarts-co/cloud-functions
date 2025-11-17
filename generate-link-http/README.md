@@ -17,7 +17,7 @@ Ensure you have the [Firebase CLI](https://firebase.google.com/docs/cli) install
     firebase deploy --only functions:generateLinkHttp
     ```
 
-    *Note: Replace `[project-id]` in the Base URL below with your actual Firebase project ID.*
+    _Note: Replace `[project-id]` in the Base URL below with your actual Firebase project ID._
 
 ## API Documentation
 
@@ -30,11 +30,13 @@ https://us-central1-[project-id].cloudfunctions.net/generateLinkHttp
 ### Authentication & CORS
 
 The API supports CORS for the following origins:
+
 - `http://localhost:[port]`
 - `https://*.flutterflow.app`
 - `https://*.incarts.beta`
 
 **Required Headers:**
+
 ```
 Content-Type: application/json
 ```
@@ -43,22 +45,22 @@ Content-Type: application/json
 
 All requests require these base parameters:
 
-| Parameter    | Type     | Required | Description                    |
-|-------------|----------|----------|--------------------------------|
-| linkType    | string   | Yes      | Link type: "1", "2", or "3"   |
-| linkName    | string   | Yes      | Private name for the link      |
-| projectId   | string   | Yes      | Current project identifier     |
-| projectName | string   | Yes      | Project name                   |
-| userId      | string   | Yes      | User identifier               |
+| Parameter   | Type   | Required | Description                 |
+| ----------- | ------ | -------- | --------------------------- |
+| linkType    | string | Yes      | Link type: "1", "2", or "3" |
+| linkName    | string | Yes      | Private name for the link   |
+| projectId   | string | Yes      | Current project identifier  |
+| projectName | string | Yes      | Project name                |
+| userId      | string | Yes      | User identifier             |
 
 **Optional common parameters:**
 
-| Parameter      | Type     | Required | Description                    | Example                                      |
-|---------------|----------|----------|--------------------------------|----------------------------------------------|
-| publicLinkName | string   | No       | Public display name           | "Summer Sale Product"                        |
-| linkValue     | number   | No       | Value for analytics           | 10                                           |
-| utmParameters | object   | No       | UTM tracking parameters       | {"source": "facebook", "medium": "social"}   |
-| linkTags      | string[] | No       | Tags associated with the link | ["promo", "summer2025"]                      |
+| Parameter      | Type     | Required | Description                   | Example                                    |
+| -------------- | -------- | -------- | ----------------------------- | ------------------------------------------ |
+| publicLinkName | string   | No       | Public display name           | "Summer Sale Product"                      |
+| linkValue      | number   | No       | Value for analytics           | 10                                         |
+| utmParameters  | object   | No       | UTM tracking parameters       | {"source": "facebook", "medium": "social"} |
+| linkTags       | string[] | No       | Tags associated with the link | ["promo", "summer2025"]                    |
 
 ### Link Types
 
@@ -67,6 +69,7 @@ All requests require these base parameters:
 ##### 1.1 Retailer Selection (Step 1)
 
 **Conditions:**
+
 - `linkType` must be `"1"`
 - `retailerStep` must be `1`
 - `originalUrl` is required
@@ -88,6 +91,7 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 ##### 1.2 Custom Link (Step 2)
 
 **Conditions:**
+
 - `linkType` must be `"1"`
 - `retailerStep` must be `2`
 - `originalUrl` is required
@@ -112,6 +116,7 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 #### 2. Product Links (Type 2)
 
 For product links, the `selectedRetailer` parameter is optional. If not provided, the retailer name will be automatically determined from the `selectedWebsite`:
+
 - `"Walmart.com"` → `"Walmart"`
 - `"Amazon.com"` → `"Amazon"`
 - `"Kroger.com"` → `"Kroger"`
@@ -120,6 +125,7 @@ For product links, the `selectedRetailer` parameter is optional. If not provided
 ##### 2.1 Walmart Product Page
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Walmart.com"`
 - `selectedAction` must be `"Item Page"`
@@ -148,12 +154,14 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 ##### 2.2 Walmart Add To Cart
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Walmart.com"`
 - `selectedAction` must be `"Add Items to Cart"`
 - `selectedProducts` array can contain multiple product IDs
 
 **Standard Request:**
+
 ```bash
 curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHttp \
   -H "Content-Type: application/json" \
@@ -218,6 +226,7 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 ##### 2.3 Instacart Product Page
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Instacart.com"`
 - `selectedAction` must be `"Item Page"`
@@ -248,6 +257,7 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 ##### 2.4 Instacart Shopping List
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Instacart.com"`
 - `selectedAction` must be `"Shopping List"`
@@ -305,11 +315,12 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 | shoppingListData.lineItems | array | Yes | Array of items in the shopping list |
 | instacartRetailer | string | No | Specific Instacart retailer (e.g., "kroger", "safeway") |
 
-*Note: This action involves an API call to Instacart's Products Link API.*
+_Note: This action involves an API call to Instacart's Products Link API._
 
 ##### 2.5 Instacart Recipe
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Instacart.com"`
 - `selectedAction` must be `"Recipe"`
@@ -403,11 +414,12 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 | recipeData.ingredients[].filters | object | No | Brand and health filters |
 | instacartRetailer | string | No | Specific Instacart retailer |
 
-*Note: This action involves an API call to Instacart's Recipe API.*
+_Note: This action involves an API call to Instacart's Recipe API._
 
 ##### 2.6 Amazon Product Cart
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Amazon.com"`
 - `selectedAction` must be `"Add Items to Cart"`
@@ -436,6 +448,7 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 ##### 2.7 Kroger Product Page
 
 **Conditions:**
+
 - `linkType` must be `"2"`
 - `selectedWebsite` must be `"Kroger.com"`
 - `selectedAction` must be `"Item Page"`
@@ -464,6 +477,7 @@ curl -X POST https://us-central1-[project-id].cloudfunctions.net/generateLinkHtt
 #### 3. Shoppable Page Links (Type 3)
 
 **Conditions:**
+
 - `linkType` must be `"3"`
 - `shoppablePageId` is required
 
@@ -514,21 +528,22 @@ All error responses follow this format:
 
 **Common Error Scenarios:**
 
-*   Missing Required Parameters (e.g., `linkType`, `linkName`)
-*   Invalid Link Type Configuration (e.g., missing `originalUrl` for Type 1)
-*   Missing Product Information (e.g., `selectedWebsite`, `selectedAction`, `selectedProducts` for Type 2)
-*   Missing Shoppable Page ID (for Type 3)
-*   URL Shortener Service Error
-*   QR Code Generation Error
-*   Invalid Shopping List Data (for Instacart Shopping List)
-*   Missing Shopping List Fields
-*   Database Error (Firestore)
+- Missing Required Parameters (e.g., `linkType`, `linkName`)
+- Invalid Link Type Configuration (e.g., missing `originalUrl` for Type 1)
+- Missing Product Information (e.g., `selectedWebsite`, `selectedAction`, `selectedProducts` for Type 2)
+- Missing Shoppable Page ID (for Type 3)
+- URL Shortener Service Error
+- QR Code Generation Error
+- Invalid Shopping List Data (for Instacart Shopping List)
+- Missing Shopping List Fields
+- Database Error (Firestore)
 
 ## Technical Implementation Details
 
 ### Architecture Overview
 
 The function follows this flow:
+
 1. **Request Validation**: Validates required parameters based on link type
 2. **URL Generation**: Creates the appropriate URL based on retailer and action
 3. **URL Shortening**: Calls external API to create shortened URL
@@ -538,12 +553,12 @@ The function follows this flow:
 
 ### External Service Dependencies
 
-| Service | Endpoint | Purpose |
-|---------|----------|---------|
-| URL Shortener | `https://incarts-url-shortener-qob6vapoca-uc.a.run.app/shorten` | Creates shortened URLs |
-| QR Code Generator | `https://us-central1-incarts.cloudfunctions.net/generateQRCode` | Generates QR codes |
-| Instacart Products API | `https://connect.instacart.com/idp/v1/products/products_link` | Creates shopping lists |
-| Instacart Recipe API | `https://connect.instacart.com/idp/v1/products/recipe` | Creates recipe links |
+| Service                | Endpoint                                                        | Purpose                |
+| ---------------------- | --------------------------------------------------------------- | ---------------------- |
+| URL Shortener          | `https://incarts-url-shortener-qob6vapoca-uc.a.run.app/shorten` | Creates shortened URLs |
+| QR Code Generator      | `https://us-central1-incarts.cloudfunctions.net/generateQRCode` | Generates QR codes     |
+| Instacart Products API | `https://connect.instacart.com/idp/v1/products/products_link`   | Creates shopping lists |
+| Instacart Recipe API   | `https://connect.instacart.com/idp/v1/products/recipe`          | Creates recipe links   |
 
 ### Firestore Data Structure
 
@@ -556,7 +571,7 @@ When a link is created, the following document structure is stored in the `links
   "name": "Private link name",
   "publicName": "Public display name",
   "linkactiveflag": true,
-  
+
   // URLs and Codes
   "longLink": "https://original-destination-url.com",
   "shortLink": "https://short.url/abc123",
@@ -564,20 +579,20 @@ When a link is created, the following document structure is stored in the `links
   "urlShortCode": "abc123",
   "qrCode": "https://storage.googleapis.com/qrcodes/abc123.png",
   "linkqrcodeimgurl": "https://storage.googleapis.com/qrcodes/abc123.png",
-  
+
   // Metadata
   "created": {
     "userId": "user123",
     "userRef": DocumentReference("users/user123"),
     "timestamp": Timestamp
   },
-  
+
   "projectDetails": {
     "projectId": "project123",
     "projectName": "My Project",
     "projectRef": DocumentReference("projects/project123")
   },
-  
+
   // Analytics
   "linkValue": 29.99,
   "pageType": "Link" | "ATC",  // ATC for Add to Cart links
@@ -587,11 +602,11 @@ When a link is created, the following document structure is stored in the `links
     "campaign": "summer_sale"
   },
   "linkTags": ["promo", "summer"],
-  
+
   // Retailer-Specific (for linkType "2")
   "siteplainname": "Walmart",  // Retailer name
   "siteRetailer": "kroger",    // Instacart-specific retailer
-  
+
   // Backup Products (when useBackups is true)
   "useBackups": true,
   "backupProducts": [
@@ -600,7 +615,7 @@ When a link is created, the following document structure is stored in the `links
       "backupIds": ["987654321", "456789123"]
     }
   ],
-  
+
   // Other
   "description": "-",
   "customUrl": "https://custom-tracking-url.com" // Optional custom URL
@@ -610,31 +625,37 @@ When a link is created, the following document structure is stored in the `links
 ### URL Generation Logic
 
 #### Walmart URLs
+
 - **Item Page**: `https://www.walmart.com/ip/{productId}`
 - **Add to Cart**: `https://affil.walmart.com/cart/addToCart?items={productId1},{productId2}`
 - **With Backups**: Only primary IDs are used in initial URL
 
 #### Instacart URLs
+
 - **Item Page**: `https://www.instacart.com/products/{productId}?retailerSlug={retailer}`
 - **Shopping List**: Generated via API call, returns unique Instacart URL
 - **Recipe**: Generated via API call, returns unique Instacart recipe URL
 - **Retailer Parameter**: Appended as `retailer_key` query parameter when provided
 
 #### Amazon URLs
+
 - **Item Page**: `https://www.amazon.com/dp/{ASIN}`
-- **Add to Cart**: `https://www.amazon.com/gp/aws/cart/add.html?AssociateTag=incarts07-20&ASIN.1={ASIN1}&Quantity.1=1`
+- **Add to Cart**: `https://www.amazon.com/gp/aws/cart/add.html?AssociateTag=incartsshoppa-20&ASIN.1={ASIN1}&Quantity.1=1`
 
 #### Kroger URLs
+
 - **Item Page**: `https://www.kroger.com/p/-/{productId}`
 
 ### Error Handling
 
 The function returns appropriate HTTP status codes:
+
 - **400**: Bad Request - Missing required parameters or invalid data
 - **404**: Not Found - Shoppable page or link record not found
 - **500**: Internal Server Error - External service failures or database errors
 
 Common error scenarios:
+
 - Missing required parameters (linkType, linkName, projectId, etc.)
 - Invalid link type configuration
 - External service failures (URL shortener, QR generator, Instacart API)

@@ -143,7 +143,11 @@ interface GenerateLinkRequest {
 
   // For backup products feature
   useBackups?: boolean; // Flag indicating if backup products are enabled
-  backupProducts?: string | NormalizedBackupProduct[] | Record<string, any> | Array<Record<string, any>>; // Backup configurations
+  backupProducts?:
+    | string
+    | NormalizedBackupProduct[]
+    | Record<string, any>
+    | Array<Record<string, any>>; // Backup configurations
 
   // For default QR code customization
   defaultQRIdentifier?: string; // Custom identifier for the default QR code
@@ -606,7 +610,7 @@ async function shortenUrl(
  * Sanitize line items by removing empty or invalid filter arrays
  */
 function sanitizeLineItems(lineItems: any[]): any[] {
-  return lineItems.map(item => {
+  return lineItems.map((item) => {
     const sanitized = { ...item };
 
     // Remove filters object if it exists and clean it up
@@ -616,7 +620,8 @@ function sanitizeLineItems(lineItems: any[]): any[] {
       // Remove brand_filters if empty or contains invalid values
       if (filters.brand_filters) {
         const validBrands = filters.brand_filters.filter(
-          (brand: any) => brand && typeof brand === 'string' && brand.trim().length > 0
+          (brand: any) =>
+            brand && typeof brand === "string" && brand.trim().length > 0
         );
         if (validBrands.length === 0) {
           delete filters.brand_filters;
@@ -628,7 +633,8 @@ function sanitizeLineItems(lineItems: any[]): any[] {
       // Remove health_filters if empty
       if (filters.health_filters) {
         const validHealthFilters = filters.health_filters.filter(
-          (filter: any) => filter && typeof filter === 'string' && filter.trim().length > 0
+          (filter: any) =>
+            filter && typeof filter === "string" && filter.trim().length > 0
         );
         if (validHealthFilters.length === 0) {
           delete filters.health_filters;
@@ -652,12 +658,15 @@ function sanitizeLineItems(lineItems: any[]): any[] {
 /**
  * Create an Instacart shopping list and return the products link URL
  */
-async function createInstacartShoppingList(data: {
-  title: string;
-  imageUrl?: string;
-  instructions?: string;
-  lineItems: any[];
-}, retailer?: string): Promise<string> {
+async function createInstacartShoppingList(
+  data: {
+    title: string;
+    imageUrl?: string;
+    instructions?: string;
+    lineItems: any[];
+  },
+  retailer?: string
+): Promise<string> {
   try {
     // Sanitize line items before sending to Instacart
     const sanitizedLineItems = sanitizeLineItems(data.lineItems);
@@ -711,9 +720,11 @@ async function createInstacartShoppingList(data: {
 
     // Manually append retailer_key to URL if provided
     if (retailer) {
-      const separator = shoppingListUrl.includes('?') ? '&' : '?';
+      const separator = shoppingListUrl.includes("?") ? "&" : "?";
       shoppingListUrl += `${separator}retailer_key=${retailer}`;
-      logger.info(`Appended retailer_key to shopping list URL: ${shoppingListUrl}`);
+      logger.info(
+        `Appended retailer_key to shopping list URL: ${shoppingListUrl}`
+      );
     }
 
     return shoppingListUrl;
@@ -735,7 +746,7 @@ async function createInstacartShoppingList(data: {
  * Sanitize recipe ingredients by removing empty or invalid filter arrays
  */
 function sanitizeIngredients(ingredients: any[]): any[] {
-  return ingredients.map(ingredient => {
+  return ingredients.map((ingredient) => {
     const sanitized = { ...ingredient };
 
     // Remove filters object if it exists and clean it up
@@ -745,7 +756,8 @@ function sanitizeIngredients(ingredients: any[]): any[] {
       // Remove brand_filters if empty or contains invalid values
       if (filters.brand_filters) {
         const validBrands = filters.brand_filters.filter(
-          (brand: any) => brand && typeof brand === 'string' && brand.trim().length > 0
+          (brand: any) =>
+            brand && typeof brand === "string" && brand.trim().length > 0
         );
         if (validBrands.length === 0) {
           delete filters.brand_filters;
@@ -757,7 +769,8 @@ function sanitizeIngredients(ingredients: any[]): any[] {
       // Remove health_filters if empty
       if (filters.health_filters) {
         const validHealthFilters = filters.health_filters.filter(
-          (filter: any) => filter && typeof filter === 'string' && filter.trim().length > 0
+          (filter: any) =>
+            filter && typeof filter === "string" && filter.trim().length > 0
         );
         if (validHealthFilters.length === 0) {
           delete filters.health_filters;
@@ -827,7 +840,6 @@ async function createInstacartRecipe(
       requestBody.instructions = recipeData.instructions;
     }
 
-
     // Call Instacart Recipe API
     const response = await axios.post(
       "https://connect.instacart.com/idp/v1/products/recipe",
@@ -846,7 +858,7 @@ async function createInstacartRecipe(
 
     // Manually append retailer_key to URL if provided
     if (retailer) {
-      const separator = recipeUrl.includes('?') ? '&' : '?';
+      const separator = recipeUrl.includes("?") ? "&" : "?";
       recipeUrl += `${separator}retailer_key=${retailer}`;
       logger.info(`Appended retailer_key to recipe URL: ${recipeUrl}`);
     }
@@ -860,9 +872,7 @@ async function createInstacartRecipe(
       data: error.response?.data,
       requestData: error.config?.data,
     });
-    throw new Error(
-      `Failed to create Instacart recipe: ${error.message}`
-    );
+    throw new Error(`Failed to create Instacart recipe: ${error.message}`);
   }
 }
 
@@ -990,7 +1000,10 @@ async function generateLinkUrl(
       }
     } else if (selectedAction === "Shopping List" && shoppingListData) {
       // Call Instacart API to create shopping list
-      return await createInstacartShoppingList(shoppingListData, instacartRetailer);
+      return await createInstacartShoppingList(
+        shoppingListData,
+        instacartRetailer
+      );
     } else if (selectedAction === "Recipe" && recipeData) {
       // Call Instacart API to create recipe
       return await createInstacartRecipe(recipeData, instacartRetailer);
@@ -1008,7 +1021,7 @@ async function generateLinkUrl(
         )
         .join("&");
 
-      return `https://www.amazon.com/gp/aws/cart/add.html?AssociateTag=incarts07-20&${productParams}`;
+      return `https://www.amazon.com/gp/aws/cart/add.html?AssociateTag=incartsshoppa-20&${productParams}`;
     }
   } else if (selectedWebsite === "Kroger.com") {
     // Generate Kroger URL
@@ -1287,10 +1300,16 @@ export const generateLinkHttp = onRequest(
               }
 
               const { title, ingredients } = data.recipeData;
-              if (!title || !ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
+              if (
+                !title ||
+                !ingredients ||
+                !Array.isArray(ingredients) ||
+                ingredients.length === 0
+              ) {
                 response.status(400).json({
                   success: false,
-                  error: "Invalid recipe data: title and ingredients are required",
+                  error:
+                    "Invalid recipe data: title and ingredients are required",
                 });
                 return;
               }
